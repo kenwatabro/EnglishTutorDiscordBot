@@ -53,14 +53,14 @@ class Events(commands.Cog):
 
             if registered_words:
                 confirmation = (
-                    f"{message.author.mention} 以下の単語が登録されました：\n"
+                    f"{message.author.mention} 単語を登録したよ！：\n"
                 )
                 for word, meaning in registered_words:
                     confirmation += f"**英語:** {word} | **意味:** {meaning}\n"
                 await message.channel.send(confirmation)
             else:
                 await message.channel.send(
-                    f"{message.author.mention} 登録された単語がありませんでした。"
+                    f"{message.author.mention} まだ何も登録していないよ！"
                 )
 
 
