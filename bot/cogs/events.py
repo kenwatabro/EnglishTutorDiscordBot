@@ -3,11 +3,14 @@ from discord.ext import commands
 import re
 from datetime import datetime
 from bot.utils.database import Database
-
+import logging
+import google.generativeai as genai  # 必要なインポートを追加
 
 class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.db = None
+        self.model = genai.GenerativeModel("gemini-1.5-flash")  # モデルを初期化
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -24,9 +27,53 @@ class Events(commands.Cog):
         if message.content.startswith(self.bot.command_prefix):
             return  # コマンドは Commands Cog で処理
 
-        if message.mentions and self.bot.user in message.mentions:
+        if message.reference:
+            # リプライされた場合の処理
+            try:
+                replied_message = await message.channel.fetch_message(message.reference.message_id)
+                
+                prompt = f"""
+                日本語で出力してください。
+                あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
+                以下の会話に対して、妹キャラとして適切な返答をしてください。
+
+                お兄ちゃん（私）: {replied_message.content}
+                あなた: {message.content}
+
+                妹キャラの返事の例は以下の通りです
+                おはよ！
+                おにーちゃん、今日もはりきっていこう！
+                えー！そんなぁー(´;ω;｀)
+                もぉー！知らない！
+
+                この妹キャラになりきったうえで、簡潔に返事をしてください
+
+                注意事項
+                「///」のようなスラッシュは使用しないでください。
+                *や#のようなマークダウンの記法は用いないでください
+                単語、その意味、例文以外にカッコ「」は用いないでください
+                """
+
+                response = self.model.generate_content(prompt)
+                await message.reply(response.text)
+
+            except Exception as e:
+                logging.error(f"Error in on_message event (reply): {e}")
+                await message.channel.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
+        
+        elif message.mentions and self.bot.user in message.mentions:
             # メンションされた場合の処理
-            content = message.content.replace(f"<@!{self.bot.user.id}>", "").strip()
+            # メンションを全て除去するための正規表現
+            mention_pattern = re.compile(f"<@!?{self.bot.user.id}>")
+            content = mention_pattern.sub('', message.content).strip()
+            logging.info(f"Processed content after removing mentions: '{content}'")
+            
+            if not content:
+                await message.channel.send(
+                    f"{message.author.mention} 登録する単語と意味を入力してね！\n例: `apple:りんご`"
+                )
+                return
+
             lines = content.split("\n")
             registered_words = []
             for line in lines:
@@ -50,19 +97,18 @@ class Events(commands.Cog):
                         ),
                     )
                     registered_words.append((english_word, japanese_meaning))
+                else:
+                    logging.warning(f"Line '{line}' does not match the expected format.")
 
             if registered_words:
-                confirmation = (
-                    f"{message.author.mention} 以下の単語が登録されました：\n"
-                )
+                confirmation = f"{message.author.mention} 単語を登録したよ！\n"
                 for word, meaning in registered_words:
                     confirmation += f"**英語:** {word} | **意味:** {meaning}\n"
                 await message.channel.send(confirmation)
             else:
                 await message.channel.send(
-                    f"{message.author.mention} 登録された単語がありませんでした。"
+                    f"{message.author.mention} まだ何も登録していないよ！\n単語と意味を `英単語:意味` の形式で入力してね。"
                 )
-
 
 async def setup(bot):
     await bot.add_cog(Events(bot))

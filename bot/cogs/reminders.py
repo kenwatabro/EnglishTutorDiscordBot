@@ -48,7 +48,7 @@ class Reminders(commands.Cog):
                         if channel is None:
                             channel = await user.create_dm()
                         await channel.send(
-                            f"{user.mention} 以下の単語を復習してください:\n"
+                            f"{user.mention} お兄ちゃん、今日の単語だよ！:\n"
                             + "\n".join(words)
                         )
         await self.schedule_reminders()
@@ -95,7 +95,7 @@ class Reminders(commands.Cog):
                 channel = user.dm_channel
                 if channel is None:
                     channel = await user.create_dm()
-                await channel.send(f"覚えている単語を復習しましょう: **{word}**")
+                await channel.send(f"復習の時間だー！: **{word}**")
         except Exception as e:
             logging.error(f"Error sending reminder to user {user_id}: {e}")
 
