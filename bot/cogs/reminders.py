@@ -6,9 +6,25 @@ from datetime import datetime, timedelta, time
 import pytz
 import asyncio
 import logging
+import os
+
+# ログファイルのディレクトリを設定
+log_dir = 'logs'
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+# ログファイルの名前を日付で設定
+log_file = os.path.join(log_dir, f'bot_{datetime.now().strftime("%Y-%m-%d")}.log')
 
 # ロギングの設定
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()  # コンソールにも出力
+    ]
+)
 
 INTERVALS = [1, 4, 10, 17, 30]
 
