@@ -2,6 +2,8 @@
 from discord.ext import commands
 from bot.utils.database import Database
 import logging
+import google.generativeai as genai
+import os
 
 
 class Commands(commands.Cog):
@@ -83,6 +85,49 @@ class Commands(commands.Cog):
             "`!show` - 自分が登録した単語一覧を表示します。\n"
         )
         await ctx.send(help_text)
+
+    @commands.command()
+    async def kaisetu(self, ctx, *, word: str):
+        """
+        指定された英単語の解説を妹キャラクターの口調で提供します。
+
+        使用方法:
+        !kaisetu <英単語>
+        """
+        try:
+            # Google AI APIを使用して解説を生成
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(
+                f"""
+                日本語で出力してください。
+                あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
+                返事の例は次の通りです。
+                「おはよ！」
+                「おにーちゃん、今日もはりきっていこう！」
+                「えー！そんなぁー(´;ω;｀)」
+                「もぉー！知らない！」
+                試しにこの妹キャラになりきったうえで、次の英単語に関する文法的、意味的解説を英語の例文とともに簡潔にしてください。
+                {word}
+
+                書き出しの例を以下に示すので、これに似た書き出しをしてください。
+                この単語はねー
+                この単語の意味はね！
+                ほほーう、これはなかなか乙な単語だねぇ～（この表現を使うときは単語の難易度に関する率直な印象を「乙」以外にも「難しい」、「いい感じ」などのような表現を自分で考えたうえで付け加えてください）
+                うーんと、これはね
+                そうだね～
+                
+
+                注意事項
+                「///」のようなスラッシュは使用しないでください。
+                *や#のようなマークダウンの記法は用いないでください
+                単語、その意味、例文以外にカッコ「」は用いないでください
+                """
+            )
+            
+            await ctx.send(response.text)
+        except Exception as e:
+            logging.error(f"Error in kaisetu command: {e}")
+            await ctx.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
