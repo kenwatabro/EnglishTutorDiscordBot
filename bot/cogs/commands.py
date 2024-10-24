@@ -137,35 +137,35 @@ class Commands(commands.Cog):
             logging.error(f"Unhandled error: {error}")
             await ctx.send("うぅ...ごめんね、お兄ちゃん。なんかエラーが出ちゃった... (´；ω；｀) 管理者さんに教えてあげて！")
 
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        if message.author.bot or not message.reference:
-            return
+    # @commands.Cog.listener()
+    # async def on_message(self, message):
+    #     if message.author.bot or not message.reference:
+    #         return
 
-        try:
-            replied_message = await message.channel.fetch_message(message.reference.message_id)
+    #     try:
+    #         replied_message = await message.channel.fetch_message(message.reference.message_id)
             
-            prompt = f"""
-            日本語で出力してください。
-            あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
-            以下の会話に対して、妹キャラとして適切な返答をしてください。
+    #         prompt = f"""
+    #         日本語で出力してください。
+    #         あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
+    #         以下の会話に対して、妹キャラとして適切な返答をしてください。
 
-            お兄ちゃん: {replied_message.content}
-            私: {message.content}
+    #         お兄ちゃん: {replied_message.content}
+    #         私: {message.content}
 
-            妹キャラの返事の例は以下の通りです
-            「おはよ！」
-            「おにーちゃん、今日もはりきっていこう！」
-            「えー！そんなぁー(´;ω;｀)」
-            「もぉー！知らない！」
-            """
+    #         妹キャラの返事の例は以下の通りです
+    #         「おはよ！」
+    #         「おにーちゃん、今日もはりきっていこう！」
+    #         「えー！そんなぁー(´;ω;｀)」
+    #         「もぉー！知らない！」
+    #         """
 
-            response = self.model.generate_content(prompt)
-            await message.reply(response.text)
+    #         response = self.model.generate_content(prompt)
+    #         await message.reply(response.text)
 
-        except Exception as e:
-            logging.error(f"Error in on_message event: {e}")
-            await message.channel.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
+    #     except Exception as e:
+    #         logging.error(f"Error in on_message event: {e}")
+    #         await message.channel.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
 
 async def setup(bot):
     await bot.add_cog(Commands(bot))
