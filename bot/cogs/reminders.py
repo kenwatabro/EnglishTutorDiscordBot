@@ -32,21 +32,62 @@ INTERVALS = [1, 4, 10, 17, 30]
 class Reminders(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.scheduler = AsyncIOScheduler(timezone=self.bot.JST)
-        self.scheduler.start()
-        # リスナー関数を手動で追加しない
-        # self.bot.add_listener(self.setup_completed, "setup_completed")
+        self.setup_complete = False
+        self.scheduler = None
+        self.db = None  # データベースインスタンスを保持
+
+    async def initialize_database(self):
+        """データベース接続を初期化する"""
+        try:
+            self.db = await Database.get_instance()
+            logging.info("Database connection initialized successfully")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to initialize database: {e}")
+            return False
+
+    async def initialize_scheduler(self):
+        """スケジューラを初期化し、必要なジョブをセットアップする"""
+        try:
+            # データベース接続を確認
+            if not self.db:
+                db_initialized = await self.initialize_database()
+                if not db_initialized:
+                    logging.error("Failed to initialize scheduler: Database connection failed")
+                    return False
+
+            if self.scheduler is None:
+                self.scheduler = AsyncIOScheduler(timezone=self.bot.JST)
+                self.scheduler.start()
+                await self.schedule_reminders()
+                self.daily_reminder.start()
+                self.check_reminders.start()
+                logging.info("Scheduler initialized and tasks started")
+                return True
+        except Exception as e:
+            logging.error(f"Error initializing scheduler: {e}")
+            return False
 
     @commands.Cog.listener()
-    async def setup_completed(self):
-        await self.schedule_reminders()
-        self.daily_reminder.start()
-        self.check_reminders.start()
+    async def on_ready(self):
+        """Botが準備完了した時に呼ばれる"""
+        if not self.setup_complete:
+            try:
+                # データベース初期化を最初に行う
+                if await self.initialize_database():
+                    #
+                    if await self.initialize_scheduler():
+                        self.setup_complete = True
+                        logging.info("Reminders Cog setup completed successfully")
+                    else:
+                        logging.error("Failed to complete setup")
+            except Exception as e:
+                logging.error(f"Error in on_ready: {e}")
 
     @tasks.loop(time=time(hour=21, minute=0, tzinfo=pytz.timezone("Asia/Tokyo")))
     async def daily_reminder(self):
         try:
-            logging.info("Starting daily reminder task")
+            logging.info(f"Starting daily reminder task at {datetime.now(self.bot.JST)}")
             db = await Database.get_instance()
             now = datetime.now(self.bot.JST)
             for interval in INTERVALS:
@@ -73,12 +114,25 @@ class Reminders(commands.Cog):
             await self.schedule_reminders()
             logging.info("Daily reminder task completed")
         except Exception as e:
-            logging.error(f"Error in daily_reminder: {e}")
+            logging.error(f"Error in daily_reminder: {e}", exc_info=True)
+            # エラー発生時に再試行
+            await asyncio.sleep(300)  # 5分待機
+            try:
+                await self.daily_reminder()
+            except Exception as retry_e:
+                logging.error(f"Retry failed in daily_reminder: {retry_e}", exc_info=True)
 
     @daily_reminder.before_loop
     async def before_daily_reminder(self):
         await self.bot.wait_until_ready()
-        logging.info("Bot is ready, daily_reminder can now start")
+        # 次の実行時刻まで待機
+        now = datetime.now(self.bot.JST)
+        next_run = now.replace(hour=21, minute=0, second=0, microsecond=0)
+        if now.time() >= time(21, 0):
+            next_run += timedelta(days=1)
+        
+        wait_seconds = (next_run - now).total_seconds()
+        logging.info(f"Daily reminder will start in {wait_seconds} seconds (at {next_run})")
 
     @tasks.loop(time=time(hour=22, minute=0, tzinfo=pytz.timezone("Asia/Tokyo")))
     async def check_reminders(self):
@@ -159,4 +213,6 @@ class Reminders(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Reminders(bot))
+    reminder_cog = Reminders(bot)
+    await bot.add_cog(reminder_cog)
+    logging.info("Reminders Cog has been added to the bot")
