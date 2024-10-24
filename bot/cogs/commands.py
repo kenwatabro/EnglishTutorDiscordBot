@@ -17,10 +17,10 @@ class Commands(commands.Cog):
         db = await Database.get_instance()
         row = await db.fetchone("SELECT user_id FROM words WHERE id = ?", (word_id,))
         if row is None:
-            await ctx.send("指定されたIDの単語が見つかりません。")
+            await ctx.send("えっと、お兄ちゃん...そのIDの単語見つからないよ？ (´・ω・｀)")
             return
         if row[0] != ctx.author.id:
-            await ctx.send("この単語を編集する権限がありません。")
+            await ctx.send("ごめんね、お兄ちゃんじゃその単語編集できないみたい... (>_<)")
             return
         if new_word:
             await db.execute(
@@ -30,7 +30,7 @@ class Commands(commands.Cog):
             await db.execute(
                 "UPDATE words SET meaning = ? WHERE id = ?", (new_meaning, word_id)
             )
-        await ctx.send("単語が更新されました。")
+        await ctx.send("単語更新かんりょー！")
 
     @commands.command()
     async def show(self, ctx):
@@ -39,12 +39,12 @@ class Commands(commands.Cog):
             "SELECT id, word, meaning FROM words WHERE user_id = ?", (ctx.author.id,)
         )
         if rows:
-            response = "あなたの登録した単語一覧:\n"
+            response = "お兄ちゃんの登録した単語一覧だよ！:\n"
             for row in rows:
                 response += f"ID: {row[0]}, 英語: {row[1]}, 意味: {row[2]}\n"
             await ctx.send(response)
         else:
-            await ctx.send("登録された単語がありません。")
+            await ctx.send("あれ？お兄ちゃん、まだ単語登録してないみたい... (・_・;)")
 
     @commands.command()
     async def delete(self, ctx, *, english_word: str):
@@ -61,7 +61,7 @@ class Commands(commands.Cog):
         )
 
         if not rows:
-            await ctx.send(f"{ctx.author.mention} 該当する単語が見つかりませんでした。")
+            await ctx.send(f"{ctx.author.mention} うーん、その単語見つからないよ？お兄ちゃん、もう一回確認してみて！ (・・?)")
             return
 
         await db.execute(
@@ -73,16 +73,16 @@ class Commands(commands.Cog):
             [f"**英語:** {row[1]} | **意味:** {row[2]}" for row in rows]
         )
         await ctx.send(
-            f"{ctx.author.mention} 以下の単語が削除されました：\n{deleted_words}"
+            f"{ctx.author.mention} 削除かんりょー！:\n{deleted_words}"
         )
 
     @commands.command()
     async def help(self, ctx):
         help_text = (
-            "**コマンド一覧:**\n"
-            "`!delete <英単語>` - 指定した英単語を辞書から削除します。\n"
-            "`!edit <ID> [新しい英単語] [新しい意味]` - 指定したIDの単語を編集します。\n"
-            "`!show` - 自分が登録した単語一覧を表示します。\n"
+            "**お兄ちゃん、コマンドの使い方教えるね！:**\n"
+            "`!delete <英単語>` - 指定した英単語を辞書から削除しちゃうよ！\n"
+            "`!edit <ID> [新しい英単語] [新しい意味]` - 指定したIDの単語を編集できるんだ！\n"
+            "`!show` - お兄ちゃんが登録した単語一覧を見せちゃうよ！\n"
         )
         await ctx.send(help_text)
 
@@ -132,10 +132,10 @@ class Commands(commands.Cog):
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
-            await ctx.send("そのコマンドは存在しません。`!help` を参照してください。")
+            await ctx.send("あれ？お兄ちゃん、そのコマンドないみたい... `!help` 見てみてね！")
         else:
             logging.error(f"Unhandled error: {error}")
-            await ctx.send("エラーが発生しました。管理者に報告してください。")
+            await ctx.send("うぅ...ごめんね、お兄ちゃん。なんかエラーが出ちゃった... (´；ω；｀) 管理者さんに教えてあげて！")
 
 
 async def setup(bot):
