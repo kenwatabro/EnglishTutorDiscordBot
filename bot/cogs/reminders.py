@@ -29,38 +29,80 @@ class Reminders(commands.Cog):
 
     @tasks.loop(time=time(hour=21, minute=0, tzinfo=pytz.timezone("Asia/Tokyo")))
     async def daily_reminder(self):
-        db = await Database.get_instance()
-        now = datetime.now(self.bot.JST)
-        for interval in INTERVALS:
-            target_date = now - timedelta(days=interval)
-            rows = await db.fetchall(
-                "SELECT user_id, word FROM words WHERE date(added_at) = date(?)",
-                (target_date.isoformat(),),
-            )
-            if rows:
-                users_words = {}
-                for user_id, word in rows:
-                    users_words.setdefault(user_id, []).append(word)
-                for user_id, words in users_words.items():
-                    user = self.bot.get_user(user_id)
-                    if user:
-                        channel = user.dm_channel
-                        if channel is None:
-                            channel = await user.create_dm()
-                        await channel.send(
-                            f"{user.mention} お兄ちゃん、今日の単語だよ！:\n"
-                            + "\n".join(words)
-                        )
-        await self.schedule_reminders()
+        try:
+            logging.info("Starting daily reminder task")
+            db = await Database.get_instance()
+            now = datetime.now(self.bot.JST)
+            for interval in INTERVALS:
+                target_date = now - timedelta(days=interval)
+                rows = await db.fetchall(
+                    "SELECT user_id, word FROM words WHERE date(added_at) = date(?)",
+                    (target_date.isoformat(),),
+                )
+                if rows:
+                    users_words = {}
+                    for user_id, word in rows:
+                        users_words.setdefault(user_id, []).append(word)
+                    for user_id, words in users_words.items():
+                        user = self.bot.get_user(user_id)
+                        if user:
+                            channel = user.dm_channel
+                            if channel is None:
+                                channel = await user.create_dm()
+                            message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(words)
+                            await channel.send(message)
+                            logging.info(f"Sent daily reminder to user {user_id}: {words}")
+                        else:
+                            logging.warning(f"User {user_id} not found")
+            await self.schedule_reminders()
+            logging.info("Daily reminder task completed")
+        except Exception as e:
+            logging.error(f"Error in daily_reminder: {e}")
 
     @daily_reminder.before_loop
     async def before_daily_reminder(self):
         await self.bot.wait_until_ready()
+        logging.info("Bot is ready, daily_reminder can now start")
 
     @tasks.loop(time=time(hour=22, minute=0, tzinfo=pytz.timezone("Asia/Tokyo")))
     async def check_reminders(self):
-        # 21時に送信されたか確認するロジックを実装
-        pass
+        try:
+            db = await Database.get_instance()
+            now = datetime.now(self.bot.JST)
+            today = now.date()
+            
+            # 本日の21時に送信されるべきだった単語を取得
+            for interval in INTERVALS:
+                target_date = today - timedelta(days=interval)
+                expected_words = await db.fetchall(
+                    "SELECT user_id, word FROM words WHERE date(added_at) = date(?)",
+                    (target_date.isoformat(),)
+                )
+                
+                if expected_words:
+                    for user_id, word in expected_words:
+                        user = self.bot.get_user(user_id)
+                        if user:
+                            channel = user.dm_channel or await user.create_dm()
+                            
+                            # 過去1時間のメッセージをチェック
+                            async for message in channel.history(
+                                limit=100,
+                                after=datetime.now(self.bot.JST) - timedelta(hours=1)
+                            ):
+                                # botからのメッセージで、該当の単語が含まれているかチェック
+                                if message.author == self.bot.user and word in message.content:
+                                    break
+                            else:  # 単語が見つからなかった場合
+                                # 再送信
+                                await channel.send(
+                                    f"{user.mention} ごめんね、さっきの単語をもう一度送るね！\n"
+                                    f"**{word}**"
+                                )
+                                logging.info(f"Resent reminder for word '{word}' to user {user_id}")
+                                
+        except Exception as e:
+            logging.error(f"Error in check_reminders: {e}")
 
     @check_reminders.before_loop
     async def before_check_reminders(self):
