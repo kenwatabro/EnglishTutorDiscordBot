@@ -48,34 +48,54 @@ class Commands(commands.Cog):
             await ctx.send("あれ？お兄ちゃん、まだ単語登録してないみたい... (・_・;)")
 
     @commands.command()
-    async def delete(self, ctx, *, english_word: str):
+    async def delete(self, ctx, *, words: str):
         """
-        ユーザーが指定した英単語を自身の辞書から削除します。
+        ユーザーが指定した英単語（複数可）を自身の辞書から削除します。
 
         使用方法:
-        !delete <英単語>
+        !delete <英単語1> <英単語2> ...
         """
-        db = await Database.get_instance()
-        rows = await db.fetchall(
-            "SELECT id, word, meaning FROM words WHERE user_id = ? AND word = ?",
-            (ctx.author.id, english_word),
-        )
+        # アルファベットとスペースのみを残し、複数のスペースを1つに置換して単語リストを作成
+        import re
+        cleaned_input = re.sub(r'[^a-zA-Z\s]', '', words)
+        word_list = [w for w in cleaned_input.split() if w]
 
-        if not rows:
-            await ctx.send(f"{ctx.author.mention} うーん、その単語見つからないよ？お兄ちゃん、もう一回確認してみて！ (・・?)")
+        if not word_list:
+            await ctx.send(f"{ctx.author.mention} えっと...削除したい英単語を教えてほしいな！")
             return
 
-        await db.execute(
-            "DELETE FROM words WHERE user_id = ? AND word = ?",
-            (ctx.author.id, english_word),
-        )
+        db = await Database.get_instance()
+        deleted_results = []
+        not_found = []
 
-        deleted_words = "\n".join(
-            [f"**英語:** {row[1]} | **意味:** {row[2]}" for row in rows]
-        )
-        await ctx.send(
-            f"{ctx.author.mention} 削除かんりょー！:\n{deleted_words}"
-        )
+        for word in word_list:
+            rows = await db.fetchall(
+                "SELECT id, word, meaning FROM words WHERE user_id = ? AND word = ?",
+                (ctx.author.id, word),
+            )
+            
+            if rows:
+                await db.execute(
+                    "DELETE FROM words WHERE user_id = ? AND word = ?",
+                    (ctx.author.id, word),
+                )
+                deleted_results.extend(rows)
+            else:
+                not_found.append(word)
+
+        # 結果メッセージの作成
+        response = []
+        if deleted_results:
+            deleted_words = "\n".join(
+                [f"**英語:** {row[1]} | **意味:** {row[2]}" for row in deleted_results]
+            )
+            response.append(f"削除かんりょー！:\n{deleted_words}")
+        
+        if not_found:
+            response.append(f"この単語は見つからなかったよ: {', '.join(not_found)}")
+
+        if response:
+            await ctx.send(f"{ctx.author.mention} " + "\n\n".join(response))
 
     @commands.command()
     async def help(self, ctx):
