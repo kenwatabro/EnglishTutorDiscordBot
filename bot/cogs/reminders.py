@@ -132,7 +132,7 @@ class Reminders(commands.Cog):
             except Exception as e:
                 logging.error(f"Error in on_ready: {e}", exc_info=True)
 
-    @tasks.loop(time=time(hour=22, minute=30, tzinfo=JST))
+    @tasks.loop(time=time(hour=21, minute=0, tzinfo=JST))
     async def daily_reminder(self):
         """指定の時刻に実行される日次リマインダー"""
         if not self.setup_complete:
