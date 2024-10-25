@@ -28,9 +28,12 @@ class Events(commands.Cog):
             return  # コマンドは Commands Cog で処理
 
         if message.reference:
-            # リプライされた場合の処理
             try:
                 replied_message = await message.channel.fetch_message(message.reference.message_id)
+                # このbotへのリプライかどうかをチェック
+                if replied_message.author.id != self.bot.user.id:
+                    # logging.info(f"Received reply from non-bot user: {replied_message.author.name} {replied_message.content}")
+                    return
                 
                 prompt = f"""
                 ### 日本語で出力してください。
