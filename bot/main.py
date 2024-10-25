@@ -27,19 +27,29 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 async def main():
-    # デフォルトのhelpコマンドを削除
-    bot.remove_command("help")
+    try:
+        logging.info("Starting bot initialization")
+        # デフォルトのhelpコマンドを削除
+        bot.remove_command("help")
+        logging.info("Removed default help command")
 
-    # Botにタイムゾーンを設定として追加
-    bot.JST = JST
+        # Botにタイムゾーンを設定として追加
+        bot.JST = JST
+        logging.info("Set JST timezone")
 
-    # Cog のロード
-    await bot.load_extension("bot.cogs.events")
-    await bot.load_extension("bot.cogs.commands")
-    await bot.load_extension("bot.cogs.reminders")
+        # Cog のロード
+        logging.info("Loading extensions...")
+        await bot.load_extension("bot.cogs.events")
+        await bot.load_extension("bot.cogs.commands")
+        await bot.load_extension("bot.cogs.reminders")
+        logging.info("All extensions loaded successfully")
 
-    # Botの起動
-    await bot.start(TOKEN)
+        # Botの起動
+        logging.info("Starting bot...")
+        await bot.start(TOKEN)
+    except Exception as e:
+        logging.error(f"Error during bot initialization: {e}")
+        raise
 
 
 if __name__ == "__main__":
