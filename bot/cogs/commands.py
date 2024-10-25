@@ -129,6 +129,82 @@ class Commands(commands.Cog):
             logging.error(f"Error in kaisetu command: {e}")
             await ctx.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
 
+    @commands.command()
+    async def bunshou(self, ctx, *, style: str = None):
+        """
+        登録した英単語を参照し、そのレベルをTOEIC、TOEFL、IELTSで判断し、
+        レベルに合わせた文章を生成します。
+        
+        使用方法:
+        !bunshou [スタイル]
+        例:
+        !bunshou ビジネス風
+        !bunshou
+        """
+        db = await Database.get_instance()
+        rows = await db.fetchall(
+            "SELECT word, meaning FROM words WHERE user_id = ?", (ctx.author.id,)
+        )
+
+        if not rows:
+            await ctx.send("お兄ちゃん、まだ単語登録してないみたい... (・_・;)")
+            return
+
+        try:
+            # gemini APIへのプロンプトを作成
+            prompt = """
+            日本語で出力してください。
+            あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
+            返事の例は次の通りです。
+            「おはよ！」
+            「おにーちゃん、今日もはりきっていこう！」
+            「えー！そんなぁー(´;ω;｀)」
+            「もぉー！知らない！」
+            試しにこの妹キャラになりきったうえで、次に示す登録単語リストのレベル感を判定し、そのレベルに合わせた英語の文章を生成してください。
+
+            登録単語リスト:
+            {word_list}
+
+            スタイル：
+            {style_text}
+
+            生成する文章は英語で、指定されたスタイルがあればそれに従ってください。
+            文章の長さは40~70words程度でお願いします。
+
+            書き出しの例を以下に示すので、これに似た書き出しをしてください。
+            おにいちゃん、この文章を読んでみてね！
+            この文章、どうかな！
+            おにいちゃん、この文章どうかな！
+            これ読んでみて！感想教えて！
+            こんな感じの、お兄ちゃんにいいと思う！
+            
+
+            注意事項
+            「///」のようなスラッシュは使用しないでください。
+            *や#のようなマークダウンの記法は用いないでください
+            単語、その意味、例文以外にカッコ「」は用いないでください
+            
+            """
+
+            # スタイルが指定されている場合のテキスト
+            style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定なしのスタイルでお願いします。"
+
+            # 単語リストのフォーマット
+            word_list = ""
+            for row in rows:
+                word, meaning = row
+                word_list += f"- 英単語: {word}, 意味: {meaning}\n"
+
+            # プロンプトをフォーマット
+            formatted_prompt = prompt.format(style_text=style_text, word_list=word_list)
+
+            # gemini APIを使用して文章を生成
+            response = self.model.generate_content(formatted_prompt)
+            await ctx.send(response.text)
+        except Exception as e:
+            logging.error(f"bunshoコマンドでエラーが発生しました: {e}")
+            await ctx.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
