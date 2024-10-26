@@ -162,6 +162,7 @@ class Commands(commands.Cog):
         !bunshou
         """
         db = await Database.get_instance()
+        # すべての単語を取得
         rows = await db.fetchall(
             "SELECT word, meaning FROM words WHERE user_id = ?", (ctx.author.id,)
         )
@@ -171,16 +172,14 @@ class Commands(commands.Cog):
             return
 
         try:
+            # ランダムに15個（または全件数が15未満の場合は全件）を選択
+            import random
+            selected_rows = random.sample(rows, min(15, len(rows)))
+
             # gemini APIへのプロンプトを作成
             prompt = """
-            日本語で出力してください。
-            あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
-            返事の例は次の通りです。
-            「おはよ！」
-            「おにーちゃん、今日もはりきっていこう！」
-            「えー！そんなぁー(´;ω;｀)」
-            「もぉー！知らない！」
-            試しにこの妹キャラになりきったうえで、次に示す登録単語リストのレベル感を判定し、そのレベルに合わせた英語の文章を生成してください。
+            
+            ### 次に示す登録単語リストのレベル感を判定し、そのレベルに合わせた英語の文章を生成してください。
 
             登録単語リスト:
             {word_list}
@@ -188,16 +187,28 @@ class Commands(commands.Cog):
             スタイル：
             {style_text}
 
-            生成する文章は英語で、指定されたスタイルがあればそれに従ってください。
-            文章の長さは40~70words程度でお願いします。
+            ### 生成する文章は英語で、指定されたスタイルがあればそれに従ってください。
+            ### 文章の長さは40~70words程度でお願いします。
+            
+            ### あなたは日本のアニメの妹キャラです。その話し方をまねてください。
+            ### 生成された英文の前後には、妹キャラのコメントを例に倣って、アレンジしつつ日本語でつけてください。
+            ### 返事の例は次の通りです。
+            「おはよ！」
+            「おにーちゃん、今日もはりきっていこう！」
+            「えー！そんなぁー(´;ω;｀)」
+            「もぉー！知らない！」
 
-            書き出しの例を以下に示すので、これに似た書き出しをしてください。
+            ### 書き出しの例
             おにいちゃん、この文章を読んでみてね！
             この文章、どうかな！
             おにいちゃん、この文章どうかな！
             これ読んでみて！感想教えて！
             こんな感じの、お兄ちゃんにいいと思う！
             
+            ### 出力例
+            これ読んでみて！感想教えてねー！
+            < English sentences based on the style in the level of the words the user registered >
+            なんだか面白いお話だね！
 
             注意事項
             「///」のようなスラッシュは使用しないでください。
@@ -209,9 +220,9 @@ class Commands(commands.Cog):
             # スタイルが指定されている場合のテキスト
             style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定なしのスタイルでお願いします。"
 
-            # 単語リストのフォーマット
+            # 単語リストのフォーマット（選択された単語のみ）
             word_list = ""
-            for row in rows:
+            for row in selected_rows:
                 word, meaning = row
                 word_list += f"- 英単語: {word}, 意味: {meaning}\n"
 
