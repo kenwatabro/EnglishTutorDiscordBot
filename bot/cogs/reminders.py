@@ -132,7 +132,7 @@ class Reminders(commands.Cog):
             except Exception as e:
                 logging.error(f"Error in on_ready: {e}", exc_info=True)
 
-    @tasks.loop(time=time(hour=21, minute=0, tzinfo=JST))
+    @tasks.loop(time=time(hour=23, minute=10, tzinfo=JST))
     async def daily_reminder(self):
         """指定の時刻に実行される日次リマインダー"""
         if not self.setup_complete:
@@ -142,6 +142,10 @@ class Reminders(commands.Cog):
             logging.info(f"Starting daily reminder task at {datetime.now(self.bot.JST)}")
             db = await Database.get_instance()
             now = datetime.now(self.bot.JST)
+            
+            # ユーザーごとの単語を格納する辞書
+            all_users_words = {}
+            
             for interval in INTERVALS:
                 target_date = now - timedelta(days=interval)
                 rows = await db.fetchall(
@@ -149,20 +153,24 @@ class Reminders(commands.Cog):
                     (target_date.isoformat(),),
                 )
                 if rows:
-                    users_words = {}
                     for user_id, word in rows:
-                        users_words.setdefault(user_id, []).append(word)
-                    for user_id, words in users_words.items():
-                        user = self.bot.get_user(user_id)
-                        if user:
-                            channel = user.dm_channel
-                            if channel is None:
-                                channel = await user.create_dm()
-                            message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(words)
-                            await channel.send(message)
-                            logging.info(f"Sent daily reminder to user {user_id}: {words}")
-                        else:
-                            logging.warning(f"User {user_id} not found")
+                        # 経過日数と単語を組み合わせて保存
+                        word_with_days = f"[{interval}日目] {word}"
+                        all_users_words.setdefault(user_id, []).append(word_with_days)
+            
+            # まとめて送信
+            for user_id, words in all_users_words.items():
+                user = self.bot.get_user(user_id)
+                if user:
+                    channel = user.dm_channel
+                    if channel is None:
+                        channel = await user.create_dm()
+                    message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(words)
+                    await channel.send(message)
+                    logging.info(f"Sent daily reminder to user {user_id}: {words}")
+                else:
+                    logging.warning(f"User {user_id} not found")
+                    
             await self.schedule_reminders()
             logging.info("Daily reminder task completed")
         except Exception as e:
