@@ -26,7 +26,7 @@ logging.basicConfig(
     ]
 )
 
-INTERVALS = [1, 4, 10, 17, 30]
+INTERVALS = [1, 4, 10, 17, 30, 60]
 JST = timezone(timedelta(hours=9))  # タイムゾーンを定義
 
 class Reminders(commands.Cog):
@@ -70,28 +70,6 @@ class Reminders(commands.Cog):
                 self.scheduler = AsyncIOScheduler(timezone=str(self.bot.JST))
                 self.scheduler.start()
                 
-                # 既存のデータベースインスタンスを使用
-                rows = await self.db.fetchall(
-                    "SELECT id, user_id, word, added_at, intervals_remaining FROM words"
-                )
-                
-                for row in rows:
-                    word_id, user_id, word, added_at, intervals_remaining = row
-                    added_time = datetime.fromisoformat(added_at).astimezone(self.bot.JST)
-                    intervals = list(map(int, intervals_remaining.split(",")))
-                    for interval in intervals:
-                        remind_time = added_time + timedelta(days=interval)
-                        if remind_time > datetime.now(self.bot.JST):
-                            job_id = f"{word_id}_{interval}"
-                            if not self.scheduler.get_job(job_id):
-                                self.scheduler.add_job(
-                                    self.send_reminder,
-                                    "date",
-                                    run_date=remind_time,
-                                    args=[user_id, word],
-                                    id=job_id,
-                                )
-                
                 # タスクが開始されていない場合のみ開始
                 if not self.daily_reminder_started:
                     self.daily_reminder.start()
@@ -132,34 +110,37 @@ class Reminders(commands.Cog):
             except Exception as e:
                 logging.error(f"Error in on_ready: {e}", exc_info=True)
 
-    @tasks.loop(time=time(hour=23, minute=10, tzinfo=JST))
+    @tasks.loop(time=time(hour=21, minute=0, tzinfo=JST))
     async def daily_reminder(self):
         """指定の時刻に実行される日次リマインダー"""
         if not self.setup_complete:
             return
         try:
             logging.info(f"daily_reminder が実行されました: {datetime.now(JST)}")
-            logging.info(f"Starting daily reminder task at {datetime.now(self.bot.JST)}")
             db = await Database.get_instance()
             now = datetime.now(self.bot.JST)
             
             # ユーザーごとの単語を格納する辞書
             all_users_words = {}
             
-            for interval in INTERVALS:
-                target_date = now - timedelta(days=interval)
-                rows = await db.fetchall(
-                    "SELECT user_id, word FROM words WHERE date(added_at) = date(?)",
-                    (target_date.isoformat(),),
-                )
-                if rows:
-                    for user_id, word in rows:
-                        # 経過日数と単語を組み合わせて保存
-                        word_with_days = f"[{interval}日目] {word}"
-                        all_users_words.setdefault(user_id, []).append(word_with_days)
+            # 当日登録された単語も含めて、全ての単語をチェック
+            rows = await db.fetchall(
+                "SELECT user_id, word, added_at FROM words"
+            )
+            
+            for user_id, word, added_at in rows:
+                added_time = datetime.fromisoformat(added_at).astimezone(self.bot.JST)
+                days_passed = (now - added_time).days
+                
+                # 指定の日数が経過している単語のみを追加
+                if days_passed in INTERVALS:
+                    all_users_words.setdefault(user_id, []).append(word)
             
             # まとめて送信
             for user_id, words in all_users_words.items():
+                if not words:  # 送信する単語がない場合はスキップ
+                    continue
+                    
                 user = self.bot.get_user(user_id)
                 if user:
                     channel = user.dm_channel
@@ -171,7 +152,6 @@ class Reminders(commands.Cog):
                 else:
                     logging.warning(f"User {user_id} not found")
                     
-            await self.schedule_reminders()
             logging.info("Daily reminder task completed")
         except Exception as e:
             logging.error(f"Error in daily_reminder: {e}", exc_info=True)
@@ -234,39 +214,6 @@ class Reminders(commands.Cog):
     # @check_reminders.before_loop
     # async def before_check_reminders(self):
     #     await self.bot.wait_until_ready()
-
-    async def schedule_reminders(self):
-        db = await Database.get_instance()
-        rows = await db.fetchall(
-            "SELECT id, user_id, word, added_at, intervals_remaining FROM words"
-        )
-        for row in rows:
-            word_id, user_id, word, added_at, intervals_remaining = row
-            added_time = datetime.fromisoformat(added_at).astimezone(self.bot.JST)
-            intervals = list(map(int, intervals_remaining.split(",")))
-            for interval in intervals:
-                remind_time = added_time + timedelta(days=interval)
-                if remind_time > datetime.now(self.bot.JST):
-                    job_id = f"{word_id}_{interval}"
-                    if not self.scheduler.get_job(job_id):
-                        self.scheduler.add_job(
-                            self.send_reminder,
-                            "date",
-                            run_date=remind_time,
-                            args=[user_id, word],
-                            id=job_id,
-                        )
-
-    async def send_reminder(self, user_id, word):
-        try:
-            user = self.bot.get_user(user_id)
-            if user:
-                channel = user.dm_channel
-                if channel is None:
-                    channel = await user.create_dm()
-                await channel.send(f"復習の時間だー！: **{word}**")
-        except Exception as e:
-            logging.error(f"Error sending reminder to user {user_id}: {e}")
 
     def cog_unload(self):
         """Cogがアンロードされる時の処理"""
