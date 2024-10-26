@@ -162,6 +162,7 @@ class Commands(commands.Cog):
         !bunshou
         """
         db = await Database.get_instance()
+        # すべての単語を取得
         rows = await db.fetchall(
             "SELECT word, meaning FROM words WHERE user_id = ?", (ctx.author.id,)
         )
@@ -171,6 +172,10 @@ class Commands(commands.Cog):
             return
 
         try:
+            # ランダムに15個（または全件数が15未満の場合は全件）を選択
+            import random
+            selected_rows = random.sample(rows, min(15, len(rows)))
+
             # gemini APIへのプロンプトを作成
             prompt = """
             
@@ -215,9 +220,9 @@ class Commands(commands.Cog):
             # スタイルが指定されている場合のテキスト
             style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定なしのスタイルでお願いします。"
 
-            # 単語リストのフォーマット
+            # 単語リストのフォーマット（選択された単語のみ）
             word_list = ""
-            for row in rows:
+            for row in selected_rows:
                 word, meaning = row
                 word_list += f"- 英単語: {word}, 意味: {meaning}\n"
 
