@@ -37,7 +37,7 @@ class Reminders(commands.Cog):
         self.setup_complete = False
         # タスクの状態を追跡
         self.daily_reminder_started = False
-        # self.check_reminders_started = False
+        self.check_reminders_started = False  # コメントアウトを解除
         self.startup_time = datetime.now(JST)
         logging.info(f"Bot startup time (JST): {self.startup_time}")
         logging.info("Reminders Cog initialized")
@@ -75,9 +75,9 @@ class Reminders(commands.Cog):
                     self.daily_reminder.start()
                     self.daily_reminder_started = True
                 
-                # if not self.check_reminders_started:
-                #     self.check_reminders.start()
-                #     self.check_reminders_started = True
+                if not self.check_reminders_started:
+                    self.check_reminders.start()
+                    self.check_reminders_started = True
                 
                 logging.info("Scheduler initialized and tasks started")
                 return True
@@ -168,59 +168,62 @@ class Reminders(commands.Cog):
         await self.bot.wait_until_ready()
         logging.info("Daily reminder is about to start.")
 
-    # @tasks.loop(time=time(hour=22, minute=0, tzinfo=JST))
-    # async def check_reminders(self):
-    #     """22:00に実行されるリマインダーチェック"""
-    #     if not self.setup_complete:
-    #         return
-    #     try:
-    #         db = await Database.get_instance()
-    #         now = datetime.now(self.bot.JST)
-    #         today = now.date()
+    @tasks.loop(time=time(hour=22, minute=0, tzinfo=JST))
+    async def check_reminders(self):
+        """22:00に実行されるリマインダーチェック - その日に単語登録がないユーザーにメッセージを送信"""
+        if not self.setup_complete:
+            return
+        try:
+            db = await Database.get_instance()
+            now = datetime.now(self.bot.JST)
+            today = now.date()
             
-    #         # 本日の21時に送信されるべきだった単語を取得
-    #         for interval in INTERVALS:
-    #             target_date = today - timedelta(days=interval)
-    #             expected_words = await db.fetchall(
-    #                 "SELECT user_id, word FROM words WHERE date(added_at) = date(?)",
-    #                 (target_date.isoformat(),)
-    #             )
-                
-    #             if expected_words:
-    #                 for user_id, word in expected_words:
-    #                     user = self.bot.get_user(user_id)
-    #                     if user:
-    #                         channel = user.dm_channel or await user.create_dm()
-                            
-    #                         # 過去1時間のメッセージをチェック
-    #                         async for message in channel.history(
-    #                             limit=100,
-    #                             after=datetime.now(self.bot.JST) - timedelta(hours=1)
-    #                         ):
-    #                             # botからのメッセージで、該当の単語が含まれているかチェック
-    #                             if message.author == self.bot.user and word in message.content:
-    #                                 break
-    #                         else:  # 単語が見つからなかった場合
-    #                             # 再送信
-    #                             await channel.send(
-    #                                 f"{user.mention} ごめんね、さっきの単語をもう一度送るね！\n"
-    #                                 f"**{word}**"
-    #                             )
-    #                             logging.info(f"Resent reminder for word '{word}' to user {user_id}")
-                                
-    #     except Exception as e:
-    #         logging.error(f"Error in check_reminders: {e}")
+            # 本日の単語登録状況をチェック
+            all_users = set()  # すべてのユーザーのセット
+            active_users = set()  # 今日単語を登録したユーザーのセット
+            
+            # すべてのユーザーを取得
+            rows = await db.fetchall("SELECT DISTINCT user_id FROM words")
+            all_users = {row[0] for row in rows}
+            
+            # 今日単語を登録したユーザーを取得
+            today_rows = await db.fetchall(
+                "SELECT DISTINCT user_id FROM words WHERE date(added_at) = date(?)",
+                (today.isoformat(),)
+            )
+            active_users = {row[0] for row in today_rows}
+            
+            # 今日単語を登録していないユーザーを特定
+            inactive_users = all_users - active_users
+            
+            # 単語を登録していないユーザーにメッセージを送信
+            for user_id in inactive_users:
+                user = self.bot.get_user(user_id)
+                if user:
+                    channel = user.dm_channel or await user.create_dm()
+                    await channel.send(
+                        f"{user.mention} お兄ちゃん、今日はまだ単語の登録してないよ！\n"
+                        "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
+                    )
+                    logging.info(f"Sent reminder to inactive user {user_id}")
+                else:
+                    logging.warning(f"User {user_id} not found")
+                    
+        except Exception as e:
+            logging.error(f"Error in check_reminders: {e}", exc_info=True)
 
-    # @check_reminders.before_loop
-    # async def before_check_reminders(self):
-    #     await self.bot.wait_until_ready()
+    @check_reminders.before_loop
+    async def before_check_reminders(self):
+        """チェックリマインダーの開始前処理"""
+        await self.bot.wait_until_ready()
+        logging.info("Check reminders is about to start.")
 
     def cog_unload(self):
         """Cogがアンロードされる時の処理"""
         if self.daily_reminder_started:
             self.daily_reminder.cancel()
-        # if self.check_reminders_started:
-        #     self.check_reminders.cancel()
+        if self.check_reminders_started:
+            self.check_reminders.cancel()
         if self.scheduler:
             self.scheduler.shutdown()
 
@@ -229,4 +232,3 @@ async def setup(bot):
     reminder_cog = Reminders(bot)
     await bot.add_cog(reminder_cog)
     logging.info("Reminders Cog has been added to the bot")
-
