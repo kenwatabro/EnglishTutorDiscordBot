@@ -28,22 +28,24 @@ class Events(commands.Cog):
             return  # コマンドは Commands Cog で処理
 
         if message.reference:
-            # リプライされた場合の処理
             try:
                 replied_message = await message.channel.fetch_message(message.reference.message_id)
+                # このbotへのリプライかどうかをチェック
+                if replied_message.author.id != self.bot.user.id:
+                    # logging.info(f"Received reply from non-bot user: {replied_message.author.name} {replied_message.content}")
+                    return
                 
                 prompt = f"""
                 ### 日本語で出力してください。
                 ### あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
-                ### 現在、私とあなたはメッセージのやり取りをしています
+                ### 現在、私（お兄ちゃん）とあなたはメッセージのやり取りをしています
+                ### もし私（お兄ちゃん）から翻訳や日本語訳の指示があった場合は、まずその訳を行い、その後で妹キャラとしてコメントを付け加えてください。
 
 
                 妹キャラのあなたの言葉: {replied_message.content}
                 それに対してお兄ちゃん（私）の返事: {message.content}
 
-                ### 以上のお兄ちゃん（私）の返事に対して、妹キャラとして適切な返答をしてください。
-
-                ### もし翻訳や日本語訳の依頼があった場合は、まず訳を行い、その後で妹キャラとしてコメントを付け加えてください。
+                ### 以上のあなたの言葉に対するお兄ちゃん（私）の返事に、妹キャラとして適切な返答をしてください。
 
                 ### 妹キャラの返答の雰囲気の例は以下の通りです
                 おはよ！
