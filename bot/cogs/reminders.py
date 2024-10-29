@@ -130,7 +130,7 @@ class Reminders(commands.Cog):
             
             for user_id, word, added_at in rows:
                 added_time = datetime.fromisoformat(added_at).astimezone(self.bot.JST)
-                days_passed = (now - added_time).days
+                days_passed = (now.date() - added_time.date()).days  # 日付のみで計算
                 
                 # 指定の日数が経過している単語のみを追加
                 if days_passed in INTERVALS:
