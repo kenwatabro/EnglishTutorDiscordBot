@@ -40,10 +40,22 @@ class Commands(commands.Cog):
             "SELECT id, word, meaning FROM words WHERE user_id = ?", (ctx.author.id,)
         )
         if rows:
-            response = "お兄ちゃんの登録した単語一覧だよ！:\n"
+            messages = ["お兄ちゃんの登録した単語一覧だよ！:\n"]
+            current_message = messages[0]
+            
             for row in rows:
-                response += f"ID: {row[0]}, 英語: {row[1]}, 意味: {row[2]}\n"
-            await ctx.send(response)
+                line = f"ID: {row[0]}, 英語: {row[1]}, 意味: {row[2]}\n"
+                # 現在のメッセージに新しい行を追加した場合の長さをチェック
+                if len(current_message + line) > 1900:  # 2000より少し余裕を持たせる
+                    messages.append("")
+                    current_message = messages[-1]
+                current_message += line
+                messages[-1] = current_message
+            
+            # 複数のメッセージに分けて送信
+            for message in messages:
+                if message.strip():  # 空のメッセージは送信しない
+                    await ctx.send(message)
         else:
             await ctx.send("あれ？お兄ちゃん、まだ単語登録してないみたい... (・_・;)")
 
@@ -218,7 +230,7 @@ class Commands(commands.Cog):
             """
 
             # スタイルが指定されている場合のテキスト
-            style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定なしのスタイルでお願いします。"
+            style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定���しのスタイルでお願いします。"
 
             # 単語リストのフォーマット（選択された単語のみ）
             word_list = ""
