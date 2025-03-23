@@ -41,6 +41,7 @@ async def main():
         logging.info("Loading extensions...")
         await bot.load_extension("bot.cogs.events")
         await bot.load_extension("bot.cogs.commands")
+        await bot.load_extension("bot.cogs.quiz")
         await bot.load_extension("bot.cogs.reminders")
         logging.info("All extensions loaded successfully")
 
