@@ -106,6 +106,17 @@ class ConfirmContinueView(View):
         )
         self.quiz_view.stop()
 
+    @discord.ui.button(label="📝 今の単語を登録", style=discord.ButtonStyle.primary)
+    async def register_word(self, interaction: discord.Interaction, button: Button):
+        word_id, eng_word, meaning = self.quiz_view.words[self.quiz_view.current_index]
+        now_str = datetime.utcnow().isoformat()
+        await self.quiz_view.db.execute(
+            "UPDATE words SET added_at = ? WHERE id = ?", (now_str, word_id)
+        )
+        await interaction.response.edit_message(
+            content=f"単語「{eng_word}」を再度登録したよ！\n次の問題に行くね！", view=None
+        )
+        await self.quiz_view._move_to_next(interaction)
 
 class Quiz(commands.Cog):
     def __init__(self, bot):
@@ -118,7 +129,7 @@ class Quiz(commands.Cog):
         """
         db = await Database.get_instance()
         rows = await db.fetchall(
-            "SELECT id, word, meaning FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT 10",
+            "SELECT id, word, meaning FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT 100",
             (ctx.author.id,),
         )
         if not rows:
