@@ -230,7 +230,11 @@ class Commands(commands.Cog):
             """
 
             # スタイルが指定されている場合のテキスト
-            style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定���しのスタイルでお願いします。"
+            style_text = (
+                f"スタイル: {style}風でお願いします。"
+                if style
+                else "特に指定なしのスタイルでお願いします。"
+            )
 
             # 単語リストのフォーマット（選択された単語のみ）
             word_list = ""
