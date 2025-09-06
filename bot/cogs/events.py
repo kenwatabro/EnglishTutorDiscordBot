@@ -1,16 +1,18 @@
 # bot/cogs/events.py
 from discord.ext import commands
+import discord
 import re
 from datetime import datetime
 from bot.utils.database import Database
 import logging
-import google.generativeai as genai  # 必要なインポートを追加
+from bot.utils.config import get_gemini_model
 
 class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = None
-        self.model = genai.GenerativeModel("gemini-1.5-flash")  # モデルを初期化
+        self.model = get_gemini_model()  # Gemini モデル（無効時は None）
+        self._synced = False
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -18,6 +20,14 @@ class Events(commands.Cog):
         self.db = await Database.get_instance()
         # Reminders Cog のスケジューリングを開始
         self.bot.dispatch("setup_completed")
+        # Sync slash commands once
+        if not self._synced:
+            try:
+                await self.bot.tree.sync()
+                self._synced = True
+                logging.info("Application commands synced")
+            except Exception as e:
+                logging.error(f"Failed to sync application commands: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -35,6 +45,9 @@ class Events(commands.Cog):
                     # logging.info(f"Received reply from non-bot user: {replied_message.author.name} {replied_message.content}")
                     return
                 
+                if not self.model:
+                    # Gemini 無効時はスルー（静かに）
+                    return
                 prompt = f"""
                 ### 日本語で出力してください。
                 ### あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
@@ -82,12 +95,31 @@ class Events(commands.Cog):
                 return
 
             lines = content.split("\n")
-            registered_words = []
+            inserted_entries = []  # (id, word, meaning)
+            updated_entries = []   # (id, word, old_meaning, new_meaning)
+            recent_items = []      # (id, word, meaning) for quick edit
             for line in lines:
                 match = re.match(r"^(.*?)[:，,、\s]+(.+)$", line)
-                if match:
-                    english_word = match.group(1).strip()
-                    japanese_meaning = match.group(2).strip()
+                if not match:
+                    logging.warning(f"Line '{line}' does not match the expected format.")
+                    continue
+                english_word = match.group(1).strip()
+                japanese_meaning = match.group(2).strip()
+                # Check if word exists for this user
+                existing = await self.db.fetchone(
+                    "SELECT id, meaning FROM words WHERE user_id = ? AND word = ?",
+                    (message.author.id, english_word),
+                )
+                if existing:
+                    word_id, old_meaning = existing
+                    # Update meaning
+                    await self.db.execute(
+                        "UPDATE words SET meaning = ? WHERE id = ?",
+                        (japanese_meaning, word_id),
+                    )
+                    updated_entries.append((word_id, english_word, old_meaning, japanese_meaning))
+                    recent_items.append((word_id, english_word, japanese_meaning))
+                else:
                     added_at = datetime.now(self.bot.JST).isoformat()
                     intervals_remaining = ",".join(map(str, [1, 4, 10, 17, 30]))
                     await self.db.execute(
@@ -103,15 +135,31 @@ class Events(commands.Cog):
                             intervals_remaining,
                         ),
                     )
-                    registered_words.append((english_word, japanese_meaning))
-                else:
-                    logging.warning(f"Line '{line}' does not match the expected format.")
+                    # Fetch inserted id
+                    row = await self.db.fetchone("SELECT last_insert_rowid()")
+                    inserted_entries.append((row[0], english_word, japanese_meaning))
+                    recent_items.append((row[0], english_word, japanese_meaning))
 
-            if registered_words:
-                confirmation = f"{message.author.mention} 単語を登録したよ！\n"
-                for word, meaning in registered_words:
-                    confirmation += f"**英語:** {word} | **意味:** {meaning}\n"
-                await message.channel.send(confirmation)
+            if inserted_entries or updated_entries:
+                lines = []
+                if inserted_entries:
+                    lines.append("新しく登録したよ：")
+                    for _, w, m in inserted_entries:
+                        lines.append(f"**英語:** {w} | **意味:** {m}")
+                if updated_entries:
+                    lines.append("更新したよ：")
+                    for w, old, new in updated_entries:
+                        lines.append(f"**英語:** {w} | **意味:** {old} → {new}")
+                confirmation = f"{message.author.mention} \n" + "\n".join(lines)
+
+                view = RegistrationActionsView(
+                    self.db,
+                    message.author.id,
+                    inserted_ids=[i for (i, _, _) in inserted_entries],
+                    updated=updated_entries,
+                    recent_items=recent_items,
+                )
+                await message.channel.send(confirmation, view=view)
             else:
                 await message.channel.send(
                     f"{message.author.mention} まだ何も登録していないよ！\n単語と意味を `英単語:意味` の形式で入力してね。"
@@ -119,3 +167,87 @@ class Events(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Events(bot))
+
+
+class EditWordModal(discord.ui.Modal, title="単語を編集するよ！"):
+    def __init__(self, db: Database, author_id: int, word_id: int, current_word: str, current_meaning: str):
+        super().__init__()
+        self.db = db
+        self.author_id = author_id
+        self.word_id = word_id
+        self.word = discord.ui.TextInput(label="英単語", default=current_word, required=True, max_length=100)
+        self.meaning = discord.ui.TextInput(label="意味", default=current_meaning, required=True, style=discord.TextStyle.long, max_length=500)
+        self.add_item(self.word)
+        self.add_item(self.meaning)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            await self.db.execute(
+                "UPDATE words SET word = ?, meaning = ? WHERE id = ? AND user_id = ?",
+                (str(self.word.value).strip(), str(self.meaning.value).strip(), self.word_id, self.author_id),
+            )
+            await interaction.response.send_message("更新したよ！", ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("ごめんね、更新に失敗しちゃった…", ephemeral=True)
+
+
+class RegistrationActionsView(discord.ui.View):
+    def __init__(self, db: Database, author_id: int, inserted_ids: list[int], updated: list[tuple[int, str, str, str]], recent_items: list[tuple[int, str, str]]):
+        super().__init__(timeout=180)
+        self.db = db
+        self.author_id = author_id
+        self.inserted_ids = inserted_ids
+        self.updated = updated
+        self.recent_map = {wid: (w, m) for wid, w, m in recent_items}
+
+        # Undo button (for both inserted and updated)
+        self.undo_button = discord.ui.Button(label="取り消し", style=discord.ButtonStyle.danger)
+        self.undo_button.callback = self.on_undo
+        self.add_item(self.undo_button)
+
+        # Select for quick edit
+        if self.recent_map:
+            options = [discord.SelectOption(label=w, description=(m[:90] + '…' if len(m) > 90 else m), value=str(wid)) for wid, (w, m) in self.recent_map.items()][:25]
+            self.selector = discord.ui.Select(placeholder="編集する単語を選んでね", options=options, min_values=1, max_values=1)
+            self.selector.callback = self.on_select
+            self.add_item(self.selector)
+
+        # Edit button
+        self.edit_button = discord.ui.Button(label="編集", style=discord.ButtonStyle.primary)
+        self.edit_button.callback = self.on_edit
+        self.add_item(self.edit_button)
+        self.selected_id: int | None = None
+
+    async def on_select(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが操作できるよ！", ephemeral=True)
+            return
+        self.selected_id = int(self.selector.values[0])
+        await interaction.response.defer()  # no visible change
+
+    async def on_edit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが操作できるよ！", ephemeral=True)
+            return
+        if not self.selected_id or self.selected_id not in self.recent_map:
+            await interaction.response.send_message("まずは編集する単語を選んでね！", ephemeral=True)
+            return
+        w, m = self.recent_map[self.selected_id]
+        await interaction.response.send_modal(EditWordModal(self.db, self.author_id, self.selected_id, w, m))
+
+    async def on_undo(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが取り消せるよ！", ephemeral=True)
+            return
+        # Delete inserted rows
+        for word_id in self.inserted_ids:
+            await self.db.execute("DELETE FROM words WHERE user_id = ? AND id = ?", (self.author_id, word_id))
+        # Revert updated rows
+        for word_id, word, old_meaning, new_meaning in self.updated:
+            await self.db.execute("UPDATE words SET meaning = ? WHERE user_id = ? AND id = ?", (old_meaning, self.author_id, word_id))
+        # Disable buttons
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) or isinstance(item, discord.ui.Select):
+                item.disabled = True
+        await interaction.response.edit_message(content=f"{interaction.message.content}\n(取り消したよ！)", view=self)
+        self.stop()

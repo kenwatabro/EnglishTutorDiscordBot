@@ -1,18 +1,15 @@
 # bot/main.py
 import discord
 from discord.ext import commands
-import os
-from dotenv import load_dotenv
 import pytz
 import asyncio
 import logging
+from bot.utils.config import DISCORD_BOT_TOKEN
 
 # ロギングの設定
 logging.basicConfig(level=logging.INFO)
 
-# 環境変数のロード
-load_dotenv()
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = DISCORD_BOT_TOKEN
 
 # 日本時間のタイムゾーン設定
 JST = pytz.timezone("Asia/Tokyo")
@@ -46,6 +43,9 @@ async def main():
 
         # Botの起動
         logging.info("Starting bot...")
+        if not TOKEN:
+            logging.error("DISCORD_BOT_TOKEN is not set. Aborting startup.")
+            return
         await bot.start(TOKEN)
     except Exception as e:
         logging.error(f"Error during bot initialization: {e}")
