@@ -16,18 +16,6 @@ class Commands(commands.Cog):
         self.bot = bot
         self.model = get_gemini_model()
 
-    async def cog_load(self) -> None:
-        # Ensure app commands are registered when the cog loads
-        try:
-            self.bot.tree.add_command(self.slash_show)
-            self.bot.tree.add_command(self.slash_help)
-            self.bot.tree.add_command(self.slash_edit)
-            self.bot.tree.add_command(self.slash_delete)
-            self.bot.tree.add_command(self.slash_kaisetu)
-            self.bot.tree.add_command(self.slash_bunshou)
-        except Exception as e:
-            logging.error(f"Failed to add app commands: {e}")
-
     # ---------- Helpers ----------
     async def _build_show_pages(self, user_id: int) -> Optional[List[str]]:
         db = await Database.get_instance()
