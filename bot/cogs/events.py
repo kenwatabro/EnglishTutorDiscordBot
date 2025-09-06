@@ -6,6 +6,7 @@ from datetime import datetime
 from bot.utils.database import Database
 import logging
 from bot.utils.config import get_gemini_model
+from bot.utils.prompts import build_reply_prompt
 
 class Events(commands.Cog):
     def __init__(self, bot):
@@ -48,32 +49,7 @@ class Events(commands.Cog):
                 if not self.model:
                     # Gemini 無効時はスルー（静かに）
                     return
-                prompt = f"""
-                ### 日本語で出力してください。
-                ### あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
-                ### 現在、私（お兄ちゃん）とあなたはメッセージのやり取りをしています
-                ### もし私（お兄ちゃん）から翻訳や日本語訳の指示があった場合は、まずその訳を行い、その後で妹キャラとしてコメントを付け加えてください。
-
-
-                妹キャラのあなたの言葉: {replied_message.content}
-                それに対してお兄ちゃん（私）の返事: {message.content}
-
-                ### 以上のあなたの言葉に対するお兄ちゃん（私）の返事に、妹キャラとして適切な返答をしてください。
-
-                ### 妹キャラの返答の雰囲気の例は以下の通りです
-                おはよ！
-                おにーちゃん、今日もはりきっていこう！
-                えー！そんなぁー(´;ω;｀)
-                もぉー！知らない！
-
-                ### この妹キャラになりきったうえで、簡潔に、もし指示がある場合はそれに従って返事をしてください
-
-                ### 注意事項
-                「///」のようなスラッシュは使用しないでください。
-                *や#のようなマークダウンの記法は用いないでください
-                単語、その意味、例文以外にカッコ「」は用いないでください
-                """
-
+                prompt = build_reply_prompt(replied_message.content, message.content)
                 response = self.model.generate_content(prompt)
                 await message.reply(response.text)
 

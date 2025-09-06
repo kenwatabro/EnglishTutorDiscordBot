@@ -11,6 +11,7 @@ import re
 import random
 from datetime import datetime
 from bot.utils import words as words_util
+from bot.utils.prompts import build_kaisetu_prompt, build_bunshou_prompt
 
 
 class Commands(commands.Cog):
@@ -77,22 +78,7 @@ class Commands(commands.Cog):
     async def _kaisetu_impl(self, word: str) -> Optional[str]:
         if not self.model:
             return None
-        prompt = f"""
-                日本語で出力してください。
-                あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
-                返事の例は次の通りです。
-                「おはよ！」
-                「おにーちゃん、今日もはりきっていこう！」
-                「えー！そんなぁー(´;ω;｀)」
-                「もぉー！知らない！」
-                試しにこの妹キャラになりきったうえで、次の英単語に関する文法的、意味的解説を英語の例文とともに簡潔にしてください。
-                {word}
-
-                注意事項
-                「///」のようなスラッシュは使用しないでください。
-                *や#のようなマークダウンの記法は用いないでください
-                単語、その意味、例文以外にカッコ「」は用いないでください
-                """
+        prompt = build_kaisetu_prompt(word)
         try:
             response = self.model.generate_content(prompt)
             return response.text
@@ -111,48 +97,9 @@ class Commands(commands.Cog):
         if not rows:
             return "お兄ちゃん、まだ単語登録してないみたい... (・_・;)"
         selected_rows = random.sample(rows, min(15, len(rows)))
-        prompt = """
-            ### 次に示す登録単語リストのレベル感を判定し、そのレベルに合わせた英語の文章を生成してください。
-
-            登録単語リスト:
-            {word_list}
-
-            スタイル：
-            {style_text}
-
-            ### 生成する文章は英語で、指定されたスタイルがあればそれに従ってください。
-            ### 文章の長さは40~70words程度でお願いします。
-            
-            ### あなたは日本のアニメの妹キャラです。その話し方をまねてください。
-            ### 生成された英文の前後には、妹キャラのコメントを例に倣って、アレンジしつつ日本語でつけてください。
-            ### 返事の例は次の通りです。
-            「おはよ！」
-            「おにーちゃん、今日もはりきっていこう！」
-            「えー！そんなぁー(´;ω;｀)」
-            「もぉー！知らない！」
-
-            ### 書き出しの例
-            おにいちゃん、この文章を読んでみてね！
-            この文章、どうかな！
-            おにいちゃん、この文章どうかな！
-            これ読んでみて！感想教えて！
-            こんな感じの、お兄ちゃんにいいと思う！
-            
-            ### 出力例
-            これ読んでみて！感想教えてねー！
-            < English sentences based on the style in the level of the words the user registered >
-            なんだか面白いお話だね！
-
-            注意事項
-            「///」のようなスラッシュは使用しないでください。
-            *や#のようなマークダウンの記法は用いないでください
-            単語、その意味、例文以外にカッコ「」は用いないでください
-        """
-        style_text = f"スタイル: {style}風でお願いします。" if style else "特に指定なしのスタイルでお願いします。"
-        word_list = "".join([f"- 英単語: {w}, 意味: {m}\n" for (w, m) in selected_rows])
+        prompt = build_bunshou_prompt(selected_rows, style)
         try:
-            formatted_prompt = prompt.format(style_text=style_text, word_list=word_list)
-            response = self.model.generate_content(formatted_prompt)
+            response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
             logging.error(f"Error in bunshou: {e}")
