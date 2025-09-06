@@ -400,6 +400,8 @@ class Commands(commands.Cog):
             "`!delete <英単語>` - 指定した英単語を辞書から削除しちゃうよ！\n"
             "`!edit <ID> [新しい英単語] [新しい意味]` - 指定したIDの単語を編集できるんだ！\n"
             "`!show` - お兄ちゃんが登録した単語一覧を見せちゃうよ！\n"
+            "`!due` - 今日の復習対象を表示するよ！\n"
+            "`!progress` - 進捗を表示するよ！\n"
         )
         await ctx.send(help_text)
 
@@ -537,6 +539,47 @@ class Commands(commands.Cog):
         except Exception as e:
             logging.error(f"bunshoコマンドでエラーが発生しました: {e}")
             await ctx.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
+
+    # Prefix: due today
+    @commands.command(name="due")
+    async def cmd_due(self, ctx):
+        rows = await words_util.fetch_user_words(ctx.author.id)
+        now = datetime.now(self.bot.JST)
+        due = words_util.compute_due_today(rows, now)
+        if not due:
+            await ctx.send("今日は復習する単語はないみたい！やったね！")
+            return
+        header = "今日の復習単語だよ！\n"
+        lines = [f"ID: {i} | 英語: {w} | 意味: {m}" for (i, w, m) in due]
+        pages = chunk_lines_to_pages(lines, max_chars=1900)
+        pages = [header + p for p in pages]
+        view = SimplePaginator(author_id=ctx.author.id, pages=pages)
+        await ctx.send(view.current_content(), view=view)
+
+    # Prefix: progress
+    @commands.command(name="progress")
+    async def cmd_progress(self, ctx):
+        rows = await words_util.fetch_user_words(ctx.author.id)
+        now = datetime.now(self.bot.JST)
+        stats = words_util.compute_progress(rows, now)
+        total = stats["total"]
+        due = stats["due_today"]
+        stage_counts = stats["stage_counts"]
+        intervals = stats["intervals"]
+        stage_lines = []
+        for idx, count in enumerate(stage_counts):
+            if idx == 0:
+                name = "新規"
+            elif idx <= len(intervals):
+                name = f"{intervals[idx-1]}日以上"
+            else:
+                name = "完了"
+            stage_lines.append(f"・{name}: {count}語")
+        summary = (
+            f"{ctx.author.mention} の進捗だよ！\n"
+            f"合計: {total}語 / 今日の復習: {due}語\n" + "\n".join(stage_lines)
+        )
+        await ctx.send(summary)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
