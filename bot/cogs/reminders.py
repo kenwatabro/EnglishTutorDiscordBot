@@ -61,6 +61,8 @@ class Reminders(commands.Cog):
             if days_passed in INTERVALS:
                 all_users_words.setdefault(user_id, []).append(word)
 
+        users_sent = 0
+        total_words = 0
         for user_id, words in all_users_words.items():
             if not words:
                 continue
@@ -70,9 +72,12 @@ class Reminders(commands.Cog):
                 message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(words)
                 await channel.send(message)
                 logging.info(f"Sent daily reminder to user {user_id}: {words}")
+                users_sent += 1
+                total_words += len(words)
             else:
                 logging.warning(f"User {user_id} not found")
         logging.info("Daily reminder run completed")
+        return users_sent, total_words
 
     async def _run_check_reminders_once(self):
         db = await Database.get_instance()
@@ -86,6 +91,7 @@ class Reminders(commands.Cog):
         )
         active_users = {row[0] for row in today_rows}
         inactive_users = all_users - active_users
+        users_sent = 0
         for user_id in inactive_users:
             user = self.bot.get_user(user_id)
             if user:
@@ -95,9 +101,11 @@ class Reminders(commands.Cog):
                     "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
                 )
                 logging.info(f"Sent reminder to inactive user {user_id}")
+                users_sent += 1
             else:
                 logging.warning(f"User {user_id} not found")
         logging.info("Inactivity reminder run completed")
+        return users_sent
 
     async def initialize_database(self):
         """データベース接続を初期化する"""
@@ -215,19 +223,26 @@ class Reminders(commands.Cog):
 
     # --- Admin/Test slash command ---
     @app_commands.command(name="test_reminders", description="(Admin) リマインダーを今すぐテスト実行するよ！")
-    async def test_reminders(self, interaction):
+    @app_commands.describe(public="結果をチャンネルに表示する（デフォルトは自分だけ）")
+    async def test_reminders(self, interaction, public: bool = False):
         # Restrict to admins in guild; allow in DMs only for the bot owner (optional future)
         if interaction.guild and not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("管理者だけが使えるコマンドだよ！", ephemeral=True)
             return
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
-            await self._run_daily_reminder_once()
-            await self._run_check_reminders_once()
-            await interaction.followup.send("リマインダーを実行したよ！ログも見てね！", ephemeral=True)
+            daily_users, daily_words = await self._run_daily_reminder_once()
+            inactive_users = await self._run_check_reminders_once()
+            msg = (
+                "リマインダーを実行したよ！\n"
+                f"・今日の単語リマインド: {daily_users}人 / 合計{daily_words}語\n"
+                f"・未登録ユーザー通知: {inactive_users}人\n"
+                "詳しくはログも見てね！"
+            )
+            await interaction.followup.send(msg, ephemeral=not public)
         except Exception as e:
             logging.error(f"Failed to run test_reminders: {e}", exc_info=True)
-            await interaction.followup.send("ごめんね、実行に失敗しちゃった…(>_<)", ephemeral=True)
+            await interaction.followup.send("ごめんね、実行に失敗しちゃった…(>_<)", ephemeral=not public)
 
 
 async def setup(bot):
