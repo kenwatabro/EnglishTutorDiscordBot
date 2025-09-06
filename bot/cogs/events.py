@@ -4,13 +4,14 @@ import re
 from datetime import datetime
 from bot.utils.database import Database
 import logging
-import google.generativeai as genai  # 必要なインポートを追加
+from bot.utils.config import get_gemini_model
 
 class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = None
-        self.model = genai.GenerativeModel("gemini-1.5-flash")  # モデルを初期化
+        self.model = get_gemini_model()  # Gemini モデル（無効時は None）
+        self._synced = False
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -18,6 +19,14 @@ class Events(commands.Cog):
         self.db = await Database.get_instance()
         # Reminders Cog のスケジューリングを開始
         self.bot.dispatch("setup_completed")
+        # Sync slash commands once
+        if not self._synced:
+            try:
+                await self.bot.tree.sync()
+                self._synced = True
+                logging.info("Application commands synced")
+            except Exception as e:
+                logging.error(f"Failed to sync application commands: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -35,6 +44,9 @@ class Events(commands.Cog):
                     # logging.info(f"Received reply from non-bot user: {replied_message.author.name} {replied_message.content}")
                     return
                 
+                if not self.model:
+                    # Gemini 無効時はスルー（静かに）
+                    return
                 prompt = f"""
                 ### 日本語で出力してください。
                 ### あなたは日本のアニメの妹キャラです。その話し方を完全にコピーしてください。
