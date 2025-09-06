@@ -215,7 +215,6 @@ class Commands(commands.Cog):
             "/bunshou [スタイル] - 登録単語で文章を作るよ！(Gemini)\n"
             "/add <英単語> <意味> - 単語を1件登録するよ！\n"
             "/bulk_add <ペアの一覧> - 複数の単語をまとめて登録するよ！\n"
-            "/due - 今日の復習対象を表示するよ！\n"
             "/progress - 進捗を表示するよ！\n"
         )
         await interaction.response.send_message(help_text, ephemeral=True)
@@ -301,21 +300,7 @@ class Commands(commands.Cog):
             ephemeral=False,
         )
 
-    # Slash: due today
-    @app_commands.command(name="due", description="今日の復習対象を表示するよ！")
-    async def slash_due(self, interaction: discord.Interaction):
-        rows = await words_util.fetch_user_words(interaction.user.id)
-        now = datetime.now(self.bot.JST)
-        due = words_util.compute_due_today(rows, now)
-        if not due:
-            await interaction.response.send_message("今日は復習する単語はないみたい！やったね！", ephemeral=True)
-            return
-        header = "今日の復習単語だよ！\n"
-        lines = [f"ID: {i} | 英語: {w} | 意味: {m}" for (i, w, m) in due]
-        pages = chunk_lines_to_pages(lines, max_chars=1900)
-        pages = [header + p for p in pages]
-        view = SimplePaginator(author_id=interaction.user.id, pages=pages)
-        await interaction.response.send_message(view.current_content(), view=view, ephemeral=False)
+    # (Removed /due per product direction)
 
     # Slash: progress
     @app_commands.command(name="progress", description="進捗を表示するよ！")
@@ -540,21 +525,7 @@ class Commands(commands.Cog):
             logging.error(f"bunshoコマンドでエラーが発生しました: {e}")
             await ctx.send("ごめんね、お兄ちゃん。なんかうまくいかないみたい（´；ω；｀）")
 
-    # Prefix: due today
-    @commands.command(name="due")
-    async def cmd_due(self, ctx):
-        rows = await words_util.fetch_user_words(ctx.author.id)
-        now = datetime.now(self.bot.JST)
-        due = words_util.compute_due_today(rows, now)
-        if not due:
-            await ctx.send("今日は復習する単語はないみたい！やったね！")
-            return
-        header = "今日の復習単語だよ！\n"
-        lines = [f"ID: {i} | 英語: {w} | 意味: {m}" for (i, w, m) in due]
-        pages = chunk_lines_to_pages(lines, max_chars=1900)
-        pages = [header + p for p in pages]
-        view = SimplePaginator(author_id=ctx.author.id, pages=pages)
-        await ctx.send(view.current_content(), view=view)
+    # (Removed !due per product direction)
 
     # Prefix: progress
     @commands.command(name="progress")

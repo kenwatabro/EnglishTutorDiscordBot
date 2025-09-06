@@ -1,5 +1,6 @@
 # bot/cogs/events.py
 from discord.ext import commands
+import discord
 import re
 from datetime import datetime
 from bot.utils.database import Database
@@ -94,12 +95,29 @@ class Events(commands.Cog):
                 return
 
             lines = content.split("\n")
-            registered_words = []
+            inserted_entries = []  # (id, word, meaning)
+            updated_entries = []   # (word, old_meaning, new_meaning)
             for line in lines:
                 match = re.match(r"^(.*?)[:，,、\s]+(.+)$", line)
-                if match:
-                    english_word = match.group(1).strip()
-                    japanese_meaning = match.group(2).strip()
+                if not match:
+                    logging.warning(f"Line '{line}' does not match the expected format.")
+                    continue
+                english_word = match.group(1).strip()
+                japanese_meaning = match.group(2).strip()
+                # Check if word exists for this user
+                existing = await self.db.fetchone(
+                    "SELECT id, meaning FROM words WHERE user_id = ? AND word = ?",
+                    (message.author.id, english_word),
+                )
+                if existing:
+                    word_id, old_meaning = existing
+                    # Update meaning
+                    await self.db.execute(
+                        "UPDATE words SET meaning = ? WHERE id = ?",
+                        (japanese_meaning, word_id),
+                    )
+                    updated_entries.append((english_word, old_meaning, japanese_meaning))
+                else:
                     added_at = datetime.now(self.bot.JST).isoformat()
                     intervals_remaining = ",".join(map(str, [1, 4, 10, 17, 30]))
                     await self.db.execute(
@@ -115,15 +133,26 @@ class Events(commands.Cog):
                             intervals_remaining,
                         ),
                     )
-                    registered_words.append((english_word, japanese_meaning))
-                else:
-                    logging.warning(f"Line '{line}' does not match the expected format.")
+                    # Fetch inserted id
+                    row = await self.db.fetchone("SELECT last_insert_rowid()")
+                    inserted_entries.append((row[0], english_word, japanese_meaning))
 
-            if registered_words:
-                confirmation = f"{message.author.mention} 単語を登録したよ！\n"
-                for word, meaning in registered_words:
-                    confirmation += f"**英語:** {word} | **意味:** {meaning}\n"
-                await message.channel.send(confirmation)
+            if inserted_entries or updated_entries:
+                lines = []
+                if inserted_entries:
+                    lines.append("新しく登録したよ：")
+                    for _, w, m in inserted_entries:
+                        lines.append(f"**英語:** {w} | **意味:** {m}")
+                if updated_entries:
+                    lines.append("更新したよ：")
+                    for w, old, new in updated_entries:
+                        lines.append(f"**英語:** {w} | **意味:** {old} → {new}")
+                confirmation = f"{message.author.mention} \n" + "\n".join(lines)
+
+                view = None
+                if inserted_entries:
+                    view = UndoRegistrationView(self.db, message.author.id, [i for (i, _, _) in inserted_entries])
+                await message.channel.send(confirmation, view=view)
             else:
                 await message.channel.send(
                     f"{message.author.mention} まだ何も登録していないよ！\n単語と意味を `英単語:意味` の形式で入力してね。"
@@ -131,3 +160,28 @@ class Events(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Events(bot))
+
+
+class UndoRegistrationView(discord.ui.View):
+    def __init__(self, db: Database, author_id: int, entry_ids: list[int]):
+        super().__init__(timeout=120)
+        self.db = db
+        self.author_id = author_id
+        self.entry_ids = entry_ids
+        self.undo_button = discord.ui.Button(label="取り消し", style=discord.ButtonStyle.danger)
+        self.undo_button.callback = self.on_undo
+        self.add_item(self.undo_button)
+
+    async def on_undo(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが取り消せるよ！", ephemeral=True)
+            return
+        # Delete inserted rows
+        for word_id in self.entry_ids:
+            await self.db.execute("DELETE FROM words WHERE user_id = ? AND id = ?", (self.author_id, word_id))
+        # Disable button and update message
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        await interaction.response.edit_message(content=f"{interaction.message.content}\n(取り消したよ！)", view=self)
+        self.stop()
