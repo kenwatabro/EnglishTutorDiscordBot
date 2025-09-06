@@ -9,6 +9,8 @@ from discord import app_commands
 from typing import Optional, List
 import re
 import random
+from datetime import datetime
+from bot.utils import words as words_util
 
 
 class Commands(commands.Cog):
@@ -211,6 +213,10 @@ class Commands(commands.Cog):
             "/delete <英単語(スペース区切り)> - 指定した英単語を辞書から削除しちゃうよ！\n"
             "/kaisetu <英単語> - 指定した英単語を解説するよ！(Gemini)\n"
             "/bunshou [スタイル] - 登録単語で文章を作るよ！(Gemini)\n"
+            "/add <英単語> <意味> - 単語を1件登録するよ！\n"
+            "/bulk_add <ペアの一覧> - 複数の単語をまとめて登録するよ！\n"
+            "/due - 今日の復習対象を表示するよ！\n"
+            "/progress - 進捗を表示するよ！\n"
         )
         await interaction.response.send_message(help_text, ephemeral=True)
 
@@ -263,6 +269,79 @@ class Commands(commands.Cog):
         await interaction.response.defer(thinking=True)
         text = await self._bunshou_impl(interaction.user.id, style)
         await interaction.followup.send(text or "うまくいかなかったみたい…", ephemeral=False)
+
+    # Slash: add single word
+    @app_commands.command(name="add", description="英単語を1件登録するよ！")
+    @app_commands.describe(word="英単語", meaning="意味")
+    async def slash_add(self, interaction: discord.Interaction, word: str, meaning: str):
+        now = datetime.now(self.bot.JST)
+        count = await words_util.insert_pairs(interaction.user.id, [(word.strip(), meaning.strip())], now)
+        await interaction.response.send_message(
+            f"{interaction.user.mention} 単語を登録したよ！\n**英語:** {word} | **意味:** {meaning}",
+            ephemeral=False,
+        )
+
+    # Slash: bulk add
+    @app_commands.command(name="bulk_add", description="複数の単語をまとめて登録するよ！（例: apple:りんご; take off:離陸する）")
+    @app_commands.describe(pairs="word:meaning を改行やセミコロンで区切って入力してね")
+    async def slash_bulk_add(self, interaction: discord.Interaction, pairs: str):
+        parsed = words_util.parse_pairs(pairs)
+        if not parsed:
+            await interaction.response.send_message(
+                "ごめんね、登録できる形式じゃなかったみたい… 'apple: りんご; take off: 離陸する' みたいに書いてね！",
+                ephemeral=True,
+            )
+            return
+        now = datetime.now(self.bot.JST)
+        count = await words_util.insert_pairs(interaction.user.id, parsed, now)
+        preview = "\n".join([f"**英語:** {w} | **意味:** {m}" for (w, m) in parsed[:10]])
+        more = "\n…" if len(parsed) > 10 else ""
+        await interaction.response.send_message(
+            f"{interaction.user.mention} 単語を{count}件登録したよ！\n" + preview + more,
+            ephemeral=False,
+        )
+
+    # Slash: due today
+    @app_commands.command(name="due", description="今日の復習対象を表示するよ！")
+    async def slash_due(self, interaction: discord.Interaction):
+        rows = await words_util.fetch_user_words(interaction.user.id)
+        now = datetime.now(self.bot.JST)
+        due = words_util.compute_due_today(rows, now)
+        if not due:
+            await interaction.response.send_message("今日は復習する単語はないみたい！やったね！", ephemeral=True)
+            return
+        header = "今日の復習単語だよ！\n"
+        lines = [f"ID: {i} | 英語: {w} | 意味: {m}" for (i, w, m) in due]
+        pages = chunk_lines_to_pages(lines, max_chars=1900)
+        pages = [header + p for p in pages]
+        view = SimplePaginator(author_id=interaction.user.id, pages=pages)
+        await interaction.response.send_message(view.current_content(), view=view, ephemeral=False)
+
+    # Slash: progress
+    @app_commands.command(name="progress", description="進捗を表示するよ！")
+    async def slash_progress(self, interaction: discord.Interaction):
+        rows = await words_util.fetch_user_words(interaction.user.id)
+        now = datetime.now(self.bot.JST)
+        stats = words_util.compute_progress(rows, now)
+        total = stats["total"]
+        due = stats["due_today"]
+        stage_counts = stats["stage_counts"]
+        intervals = stats["intervals"]
+        # Build a readable summary
+        stage_lines = []
+        for idx, count in enumerate(stage_counts):
+            if idx == 0:
+                name = "新規"
+            elif idx <= len(intervals):
+                name = f"{intervals[idx-1]}日以上"
+            else:
+                name = "完了"
+            stage_lines.append(f"・{name}: {count}語")
+        summary = (
+            f"{interaction.user.mention} の進捗だよ！\n"
+            f"合計: {total}語 / 今日の復習: {due}語\n" + "\n".join(stage_lines)
+        )
+        await interaction.response.send_message(summary, ephemeral=True)
 
     @commands.command()
     async def delete(self, ctx, *, words: str):

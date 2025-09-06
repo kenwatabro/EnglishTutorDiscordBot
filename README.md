@@ -21,12 +21,17 @@ Notes:
 - `/help` — Show usage (ephemeral).
 - `/kaisetu <word>` — Explain a word (Gemini).
 - `/bunshou [style]` — Generate a short text (Gemini).
+ - `/add <word> <meaning>` — Add a single word.
+ - `/bulk_add <pairs>` — Add multiple pairs like `apple:りんご; take off:離陸する`.
+ - `/due` — Show words due today for review.
+ - `/progress` — Show your personal progress summary.
 
 Legacy prefix commands (`!show`, `!edit`, `!delete`, `!kaisetu`, `!bunshou`) still work, but slash commands are recommended for discoverability and autocomplete.
 
 ### Reminders
 - Daily word reminders at 21:00 JST for words at intervals `[1,4,10,17,30,60]` days.
 - Inactivity reminder at 22:00 JST for users without registrations that day.
+ - You can still register by mentioning the bot with `word:meaning`, but `/add` or `/bulk_add` offer clearer UX.
 
 ### Systemd (optional)
 - reload: `sudo systemctl daemon-reload`
