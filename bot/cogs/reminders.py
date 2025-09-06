@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 from discord import app_commands
+from bot.utils.review import ReminderView
 
 # ログファイルのディレクトリを設定
 log_dir = 'logs'
@@ -50,30 +51,35 @@ class Reminders(commands.Cog):
         now = datetime.now(self.bot.JST)
 
         all_users_words = {}
-        rows = await db.fetchall("SELECT user_id, word, added_at FROM words")
-        for user_id, word, added_at in rows:
+        rows = await db.fetchall("SELECT user_id, id, word, meaning, added_at, intervals_remaining FROM words")
+        for user_id, word_id, word, meaning, added_at, intervals_remaining in rows:
             try:
                 added_time = datetime.fromisoformat(added_at).astimezone(self.bot.JST)
             except Exception:
                 # Fallback if timezone conversion fails
                 added_time = datetime.fromisoformat(added_at)
             days_passed = (now.date() - added_time.date()).days
+            if intervals_remaining == 'done':
+                continue
             if days_passed in INTERVALS:
-                all_users_words.setdefault(user_id, []).append(word)
+                all_users_words.setdefault(user_id, []).append((word_id, word, meaning))
 
         users_sent = 0
         total_words = 0
-        for user_id, words in all_users_words.items():
-            if not words:
+        for user_id, items in all_users_words.items():
+            if not items:
                 continue
             user = self.bot.get_user(user_id)
             if user:
                 channel = user.dm_channel or await user.create_dm()
-                message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(words)
-                await channel.send(message)
-                logging.info(f"Sent daily reminder to user {user_id}: {words}")
+                preview = [f"・{w}" for (_, w, _) in items[:10]]
+                more = "\n…" if len(items) > 10 else ""
+                message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(preview) + more
+                view = ReminderView(user_id, items, str(self.bot.JST))
+                await channel.send(message, view=view)
+                logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
                 users_sent += 1
-                total_words += len(words)
+                total_words += len(items)
             else:
                 logging.warning(f"User {user_id} not found")
         logging.info("Daily reminder run completed")

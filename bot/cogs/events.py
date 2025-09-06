@@ -96,7 +96,8 @@ class Events(commands.Cog):
 
             lines = content.split("\n")
             inserted_entries = []  # (id, word, meaning)
-            updated_entries = []   # (word, old_meaning, new_meaning)
+            updated_entries = []   # (id, word, old_meaning, new_meaning)
+            recent_items = []      # (id, word, meaning) for quick edit
             for line in lines:
                 match = re.match(r"^(.*?)[:，,、\s]+(.+)$", line)
                 if not match:
@@ -116,7 +117,8 @@ class Events(commands.Cog):
                         "UPDATE words SET meaning = ? WHERE id = ?",
                         (japanese_meaning, word_id),
                     )
-                    updated_entries.append((english_word, old_meaning, japanese_meaning))
+                    updated_entries.append((word_id, english_word, old_meaning, japanese_meaning))
+                    recent_items.append((word_id, english_word, japanese_meaning))
                 else:
                     added_at = datetime.now(self.bot.JST).isoformat()
                     intervals_remaining = ",".join(map(str, [1, 4, 10, 17, 30]))
@@ -136,6 +138,7 @@ class Events(commands.Cog):
                     # Fetch inserted id
                     row = await self.db.fetchone("SELECT last_insert_rowid()")
                     inserted_entries.append((row[0], english_word, japanese_meaning))
+                    recent_items.append((row[0], english_word, japanese_meaning))
 
             if inserted_entries or updated_entries:
                 lines = []
@@ -149,9 +152,13 @@ class Events(commands.Cog):
                         lines.append(f"**英語:** {w} | **意味:** {old} → {new}")
                 confirmation = f"{message.author.mention} \n" + "\n".join(lines)
 
-                view = None
-                if inserted_entries:
-                    view = UndoRegistrationView(self.db, message.author.id, [i for (i, _, _) in inserted_entries])
+                view = RegistrationActionsView(
+                    self.db,
+                    message.author.id,
+                    inserted_ids=[i for (i, _, _) in inserted_entries],
+                    updated=updated_entries,
+                    recent_items=recent_items,
+                )
                 await message.channel.send(confirmation, view=view)
             else:
                 await message.channel.send(
@@ -162,26 +169,85 @@ async def setup(bot):
     await bot.add_cog(Events(bot))
 
 
-class UndoRegistrationView(discord.ui.View):
-    def __init__(self, db: Database, author_id: int, entry_ids: list[int]):
-        super().__init__(timeout=120)
+class EditWordModal(discord.ui.Modal, title="単語を編集するよ！"):
+    def __init__(self, db: Database, author_id: int, word_id: int, current_word: str, current_meaning: str):
+        super().__init__()
         self.db = db
         self.author_id = author_id
-        self.entry_ids = entry_ids
+        self.word_id = word_id
+        self.word = discord.ui.TextInput(label="英単語", default=current_word, required=True, max_length=100)
+        self.meaning = discord.ui.TextInput(label="意味", default=current_meaning, required=True, style=discord.TextStyle.long, max_length=500)
+        self.add_item(self.word)
+        self.add_item(self.meaning)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            await self.db.execute(
+                "UPDATE words SET word = ?, meaning = ? WHERE id = ? AND user_id = ?",
+                (str(self.word.value).strip(), str(self.meaning.value).strip(), self.word_id, self.author_id),
+            )
+            await interaction.response.send_message("更新したよ！", ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("ごめんね、更新に失敗しちゃった…", ephemeral=True)
+
+
+class RegistrationActionsView(discord.ui.View):
+    def __init__(self, db: Database, author_id: int, inserted_ids: list[int], updated: list[tuple[int, str, str, str]], recent_items: list[tuple[int, str, str]]):
+        super().__init__(timeout=180)
+        self.db = db
+        self.author_id = author_id
+        self.inserted_ids = inserted_ids
+        self.updated = updated
+        self.recent_map = {wid: (w, m) for wid, w, m in recent_items}
+
+        # Undo button (for both inserted and updated)
         self.undo_button = discord.ui.Button(label="取り消し", style=discord.ButtonStyle.danger)
         self.undo_button.callback = self.on_undo
         self.add_item(self.undo_button)
+
+        # Select for quick edit
+        if self.recent_map:
+            options = [discord.SelectOption(label=w, description=(m[:90] + '…' if len(m) > 90 else m), value=str(wid)) for wid, (w, m) in self.recent_map.items()][:25]
+            self.selector = discord.ui.Select(placeholder="編集する単語を選んでね", options=options, min_values=1, max_values=1)
+            self.selector.callback = self.on_select
+            self.add_item(self.selector)
+
+        # Edit button
+        self.edit_button = discord.ui.Button(label="編集", style=discord.ButtonStyle.primary)
+        self.edit_button.callback = self.on_edit
+        self.add_item(self.edit_button)
+        self.selected_id: int | None = None
+
+    async def on_select(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが操作できるよ！", ephemeral=True)
+            return
+        self.selected_id = int(self.selector.values[0])
+        await interaction.response.defer()  # no visible change
+
+    async def on_edit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("これは発行者だけが操作できるよ！", ephemeral=True)
+            return
+        if not self.selected_id or self.selected_id not in self.recent_map:
+            await interaction.response.send_message("まずは編集する単語を選んでね！", ephemeral=True)
+            return
+        w, m = self.recent_map[self.selected_id]
+        await interaction.response.send_modal(EditWordModal(self.db, self.author_id, self.selected_id, w, m))
 
     async def on_undo(self, interaction: discord.Interaction):
         if interaction.user.id != self.author_id:
             await interaction.response.send_message("これは発行者だけが取り消せるよ！", ephemeral=True)
             return
         # Delete inserted rows
-        for word_id in self.entry_ids:
+        for word_id in self.inserted_ids:
             await self.db.execute("DELETE FROM words WHERE user_id = ? AND id = ?", (self.author_id, word_id))
-        # Disable button and update message
+        # Revert updated rows
+        for word_id, word, old_meaning, new_meaning in self.updated:
+            await self.db.execute("UPDATE words SET meaning = ? WHERE user_id = ? AND id = ?", (old_meaning, self.author_id, word_id))
+        # Disable buttons
         for item in self.children:
-            if isinstance(item, discord.ui.Button):
+            if isinstance(item, discord.ui.Button) or isinstance(item, discord.ui.Select):
                 item.disabled = True
         await interaction.response.edit_message(content=f"{interaction.message.content}\n(取り消したよ！)", view=self)
         self.stop()

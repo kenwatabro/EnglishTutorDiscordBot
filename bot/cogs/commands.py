@@ -216,6 +216,7 @@ class Commands(commands.Cog):
             "/add <英単語> <意味> - 単語を1件登録するよ！\n"
             "/bulk_add <ペアの一覧> - 複数の単語をまとめて登録するよ！\n"
             "/progress - 進捗を表示するよ！\n"
+            "/find <キーワード> - 単語や意味で検索するよ！\n"
         )
         await interaction.response.send_message(help_text, ephemeral=True)
 
@@ -327,6 +328,26 @@ class Commands(commands.Cog):
             f"合計: {total}語 / 今日の復習: {due}語\n" + "\n".join(stage_lines)
         )
         await interaction.response.send_message(summary, ephemeral=True)
+
+    # Slash: find/search
+    @app_commands.command(name="find", description="単語や意味で検索するよ！")
+    @app_commands.describe(q="検索ワード（英単語または日本語の一部）")
+    async def slash_find(self, interaction: discord.Interaction, q: str):
+        db = await Database.get_instance()
+        like = f"%{q}%"
+        rows = await db.fetchall(
+            "SELECT id, word, meaning FROM words WHERE user_id = ? AND (word LIKE ? OR meaning LIKE ?) ORDER BY id ASC",
+            (interaction.user.id, like, like),
+        )
+        if not rows:
+            await interaction.response.send_message("見つからなかったみたい…別のキーワードを試してね！", ephemeral=True)
+            return
+        header = f"『{q}』の検索結果だよ！\n"
+        lines = [f"ID: {r[0]} | 英語: {r[1]} | 意味: {r[2]}" for r in rows]
+        pages = chunk_lines_to_pages(lines, max_chars=1900)
+        pages = [header + p for p in pages]
+        view = SimplePaginator(author_id=interaction.user.id, pages=pages)
+        await interaction.response.send_message(view.current_content(), view=view, ephemeral=False)
 
     @commands.command()
     async def delete(self, ctx, *, words: str):
