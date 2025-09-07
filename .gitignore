@@ -4,3 +4,8 @@ __pycache__
 *.ipynb
 *.log
 *.log.*
+venv/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
