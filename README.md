@@ -13,6 +13,7 @@ Discord bot that helps register English words, sends spaced-repetition reminders
 Notes:
 - If `GEMINI_API_KEY` is not set, AI features (`!kaisetu`, `!bunshou`, reply generation) are disabled gracefully.
 - The SQLite DB file is `words.db` in the repo root and is auto-created.
+ - You can tune LLM tone with `PROMPT_TONE` env var: `playful` (default) or `concise`.
 
 ### Commands
 - `/show` — Show your registered words (paginates).

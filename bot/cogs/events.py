@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from bot.utils.database import Database
 import logging
-from bot.utils.config import get_gemini_model
+from bot.utils.config import get_gemini_model, get_prompt_tone
 from bot.utils.prompts import build_reply_prompt
 
 class Events(commands.Cog):
@@ -49,7 +49,7 @@ class Events(commands.Cog):
                 if not self.model:
                     # Gemini 無効時はスルー（静かに）
                     return
-                prompt = build_reply_prompt(replied_message.content, message.content)
+                prompt = build_reply_prompt(replied_message.content, message.content, tone=get_prompt_tone())
                 response = self.model.generate_content(prompt)
                 await message.reply(response.text)
 

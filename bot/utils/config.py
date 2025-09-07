@@ -11,6 +11,7 @@ load_dotenv()
 # Public settings
 DISCORD_BOT_TOKEN: Optional[str] = os.getenv("DISCORD_BOT_TOKEN")
 GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+PROMPT_TONE: str = os.getenv("PROMPT_TONE", "playful").strip().lower()
 
 
 def get_gemini_model(model_name: str = "gemini-1.5-flash"):
@@ -26,6 +27,11 @@ def get_gemini_model(model_name: str = "gemini-1.5-flash"):
         )
         return None
 
+
+def get_prompt_tone() -> str:
+    """Return prompt tone variant: 'concise' or 'playful' (default playful)."""
+    return PROMPT_TONE if PROMPT_TONE in {"concise", "playful"} else "playful"
+
     if not GEMINI_API_KEY:
         logging.warning("GEMINI_API_KEY not set; disabling Gemini-powered features.")
         return None
@@ -36,4 +42,3 @@ def get_gemini_model(model_name: str = "gemini-1.5-flash"):
     except Exception as e:
         logging.error(f"Failed to configure Gemini: {e}")
         return None
-

@@ -1,16 +1,28 @@
 from typing import Iterable, List, Tuple, Optional
 
 
-IMOUTO_TONE_EXAMPLES = [
+IMOUTO_TONE_EXAMPLES_PLAYFUL = [
     "おはよ！",
     "おにーちゃん、今日もはりきっていこう！",
     "えー！そんなぁー(´;ω;｀)",
     "もぉー！知らない！",
 ]
 
+IMOUTO_TONE_EXAMPLES_CONCISE = [
+    "おはよ。",
+    "がんばろ。",
+    "了解。",
+]
 
-def build_kaisetu_prompt(word: str) -> str:
-    examples = "\n".join(IMOUTO_TONE_EXAMPLES)
+
+def _pick_examples(tone: str) -> str:
+    if tone == "concise":
+        return "\n".join(IMOUTO_TONE_EXAMPLES_CONCISE)
+    return "\n".join(IMOUTO_TONE_EXAMPLES_PLAYFUL)
+
+
+def build_kaisetu_prompt(word: str, tone: str = "playful") -> str:
+    examples = _pick_examples(tone)
     return f"""
 日本語で出力してください。アニメの妹キャラの口調で、短く簡潔に話します。
 マークダウン装飾（* # など）やスラッシュ(///)は禁止。引用は日本語の「」のみ。
@@ -31,8 +43,8 @@ def build_kaisetu_prompt(word: str) -> str:
 """
 
 
-def build_bunshou_prompt(selected: Iterable[Tuple[str, str]], style: Optional[str]) -> str:
-    examples = "\n".join(IMOUTO_TONE_EXAMPLES)
+def build_bunshou_prompt(selected: Iterable[Tuple[str, str]], style: Optional[str], tone: str = "playful") -> str:
+    examples = _pick_examples(tone)
     words_formatted = "".join([f"- 英単語: {w}, 意味: {m}\n" for (w, m) in selected])
     style_text = f"スタイル: {style}風" if style else "特に指定なし"
     return f"""
@@ -51,8 +63,8 @@ def build_bunshou_prompt(selected: Iterable[Tuple[str, str]], style: Optional[st
 """
 
 
-def build_reply_prompt(prior_bot: str, user_message: str) -> str:
-    examples = "\n".join(IMOUTO_TONE_EXAMPLES)
+def build_reply_prompt(prior_bot: str, user_message: str, tone: str = "playful") -> str:
+    examples = _pick_examples(tone)
     return f"""
 日本語で短く返答します。妹キャラの口調。1〜2行。
 マークダウンやスラッシュ(///)は禁止。引用は日本語の「」のみ。
@@ -70,4 +82,3 @@ def build_reply_prompt(prior_bot: str, user_message: str) -> str:
 お兄ちゃん(ユーザー)の発言:
 {user_message}
 """
-

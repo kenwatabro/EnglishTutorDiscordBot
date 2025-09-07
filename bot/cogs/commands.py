@@ -2,7 +2,7 @@
 from discord.ext import commands
 from bot.utils.database import Database
 import logging
-from bot.utils.config import get_gemini_model
+from bot.utils.config import get_gemini_model, get_prompt_tone
 from bot.utils.pagination import chunk_lines_to_pages, SimplePaginator
 import discord
 from discord import app_commands
@@ -78,7 +78,7 @@ class Commands(commands.Cog):
     async def _kaisetu_impl(self, word: str) -> Optional[str]:
         if not self.model:
             return None
-        prompt = build_kaisetu_prompt(word)
+        prompt = build_kaisetu_prompt(word, tone=get_prompt_tone())
         try:
             response = self.model.generate_content(prompt)
             return response.text
@@ -97,7 +97,7 @@ class Commands(commands.Cog):
         if not rows:
             return "お兄ちゃん、まだ単語登録してないみたい... (・_・;)"
         selected_rows = random.sample(rows, min(15, len(rows)))
-        prompt = build_bunshou_prompt(selected_rows, style)
+        prompt = build_bunshou_prompt(selected_rows, style, tone=get_prompt_tone())
         try:
             response = self.model.generate_content(prompt)
             return response.text
