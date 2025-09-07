@@ -7,6 +7,9 @@ from bot.utils.database import Database
 import logging
 from bot.utils.config import get_gemini_model, get_prompt_tone
 from bot.utils.prompts import build_reply_prompt
+from bot.utils import words as words_util
+from bot.utils import stats as stats_util
+from bot.utils.review import start_quiz_session
 
 class Events(commands.Cog):
     def __init__(self, bot):
@@ -21,10 +24,19 @@ class Events(commands.Cog):
         self.db = await Database.get_instance()
         # Reminders Cog のスケジューリングを開始
         self.bot.dispatch("setup_completed")
-        # Sync slash commands once
+        # Sync slash commands (global + per-guild for immediate availability)
         if not self._synced:
             try:
+                # Global sync (may take time to propagate)
                 await self.bot.tree.sync()
+                # Per-guild sync for instant availability
+                for g in self.bot.guilds:
+                    try:
+                        self.bot.tree.copy_global_to(guild=g)
+                        await self.bot.tree.sync(guild=g)
+                        logging.info(f"Commands synced to guild: {g.name} ({g.id})")
+                    except Exception as ge:
+                        logging.error(f"Failed to sync to guild {g.id}: {ge}")
                 self._synced = True
                 logging.info("Application commands synced")
             except Exception as e:
@@ -37,6 +49,83 @@ class Events(commands.Cog):
 
         if message.content.startswith(self.bot.command_prefix):
             return  # コマンドは Commands Cog で処理
+
+        # DM内のクイズ 起動/操作（テキスト）
+        if message.guild is None:
+            cmd = message.content.strip()
+            # 起動: クイズ [n]
+            import re as _re
+            m_quiz = _re.match(r"^/?クイズ(?:\s+(\d+))?(?:\s+(\S+))?$", cmd)
+            m_review = _re.match(r"^/?復習(?:\s+(\d+))?$", cmd)
+            if m_quiz or m_review:
+                try:
+                    n = int((m_quiz or m_review).group(1) or 5)
+                    n = max(1, min(n, 20))
+                except Exception:
+                    n = 5
+                try:
+                    # Build pool
+                    rows = await words_util.fetch_user_words(message.author.id)
+                    if not rows:
+                        await message.channel.send("まだ単語が登録されていないみたい… /add で登録してね！")
+                        return
+                    pool = [(r[0], r[1], r[2]) for r in rows]
+                    if m_review:
+                        now = datetime.now(self.bot.JST)
+                        due = words_util.compute_due_today(rows, now)
+                        items = due[:n]
+                        if not items:
+                            import random as _rand
+                            items = _rand.sample(pool, min(n, len(pool)))
+                            note = "今日の復習対象はなかったから、ランダムに出題するね！"
+                        else:
+                            note = None
+                        from bot.utils.review import ReviewSession
+                        view = ReviewSession(message.author.id, items)
+                        head = "じゃあ、はじめよっか！" + ("\n" + note if note else "")
+                        await message.channel.send(head + "\n" + view.current_prompt(), view=view)
+                        return
+                    # クイズ（難しいもの優先）
+                    # 第二引数で優先度バイアスを受け付け（数値 or 弱め/普通/強め）
+                    bias_raw = m_quiz.group(2) if m_quiz else None
+                    b = 1.0
+                    if bias_raw:
+                        mapping = {"弱め": 0.5, "普通": 1.0, "強め": 2.0}
+                        b = mapping.get(bias_raw, None)
+                        if b is None:
+                            try:
+                                b = float(bias_raw)
+                            except Exception:
+                                b = 1.0
+                        b = max(0.0, min(3.0, b))
+                    stats_map = await stats_util.fetch_stats_map(rows)
+                    def weight_of(item):
+                        wid = item[0]
+                        attempts, corrects, ease = stats_map.get(wid, (0, 0, 2.5))
+                        acc = (corrects / attempts) if attempts else 0.0
+                        return 1.0 + b * (attempts * (1.0 - acc) + (3.0 - ease))
+                    weights = [weight_of(it) for it in pool]
+                    import random as _rand
+                    selected, items_cpy, ws = [], pool[:], weights[:]
+                    for _ in range(min(n, len(items_cpy))):
+                        tw = sum(ws)
+                        r = _rand.random() * tw
+                        up = 0.0
+                        idx = 0
+                        for i, w in enumerate(ws):
+                            up += w
+                            if r <= up:
+                                idx = i
+                                break
+                        selected.append(items_cpy.pop(idx))
+                        ws.pop(idx)
+                    from bot.utils.review import ReviewSession
+                    view = ReviewSession(message.author.id, selected)
+                    await message.channel.send("クイズ行くよ！\n" + view.current_prompt(), view=view)
+                    return
+                except Exception as e:
+                    logging.error(f"DM quiz start failed: {e}")
+                    await message.channel.send("ごめんね…クイズの開始に失敗しちゃった…")
 
         if message.reference:
             try:

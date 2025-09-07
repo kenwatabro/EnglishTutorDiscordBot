@@ -12,6 +12,8 @@ import random
 from datetime import datetime
 from bot.utils import words as words_util
 from bot.utils.prompts import build_kaisetu_prompt, build_bunshou_prompt
+from bot.utils.review import ReviewSession, start_quiz_session, quiz_memorized, quiz_forgot, quiz_stop
+from bot.utils import stats as stats_util
 
 
 class Commands(commands.Cog):
@@ -153,8 +155,14 @@ class Commands(commands.Cog):
     # Slash: help
     @app_commands.command(name="help", description="コマンドの使い方を表示するよ！")
     async def slash_help(self, interaction: discord.Interaction):
+        is_dm = interaction.guild is None
+        await interaction.response.defer(ephemeral=not is_dm, thinking=False)
         help_text = (
             "**お兄ちゃん、コマンドの使い方教えるね！:**\n"
+            "/復習 [出題数] - 今日の復習（クイズ）を始めるよ！\n"
+            "/クイズ [出題数] [優先度] - 登録単語からランダムにクイズを出すよ！優先度は 0〜3 の数値 or ‘弱め/普通/強め’（既定1）\n"
+            "（英語名のスラッシュコマンドもそのまま使えるよ：/review, /quiz など）\n"
+            "（DMでも同じコマンドで開始できるよ）\n"
             "/show - 登録した単語一覧を見せちゃうよ！\n"
             "/edit <ID> [新しい英単語] [新しい意味] - 指定したIDの単語を編集できるんだ！\n"
             "/delete <英単語(スペース区切り)> - 指定した英単語を辞書から削除しちゃうよ！\n"
@@ -165,7 +173,7 @@ class Commands(commands.Cog):
             "/progress - 進捗を表示するよ！\n"
             "/find <キーワード> - 単語や意味で検索するよ！\n"
         )
-        await interaction.response.send_message(help_text, ephemeral=True)
+        await interaction.followup.send(help_text, ephemeral=not is_dm)
 
     # Slash: edit
     @app_commands.command(name="edit", description="登録した単語の内容を編集するよ！")
@@ -216,6 +224,116 @@ class Commands(commands.Cog):
         await interaction.response.defer(thinking=True)
         text = await self._bunshou_impl(interaction.user.id, style)
         await interaction.followup.send(text or "うまくいかなかったみたい…", ephemeral=False)
+
+    async def _start_review(self, interaction: discord.Interaction, count: Optional[int] = 5):
+        n = max(1, min(count or 5, 20))
+        user_id = interaction.user.id
+        # Build items due today; fallback to random sample if none
+        rows = await words_util.fetch_user_words(user_id)
+        if not rows:
+            await interaction.response.send_message("お兄ちゃん、まだ単語登録してないみたい…まずは /add で登録してね！", ephemeral=True)
+            return
+        now = datetime.now(self.bot.JST)
+        due = words_util.compute_due_today(rows, now)
+        items = due[:n]
+        note = None
+        if not items:
+            import random
+            pool = [(r[0], r[1], r[2]) for r in rows]
+            items = random.sample(pool, min(n, len(pool)))
+            note = "今日の復習対象はなかったから、ランダムに出題するね！"
+        # Send in DM or current DM channel with buttons
+        is_dm = interaction.guild is None
+        await interaction.response.send_message("DMでクイズを始めるね！", ephemeral=not is_dm)
+        user = interaction.user
+        channel = interaction.channel if is_dm else (user.dm_channel or await user.create_dm())
+        view = ReviewSession(user_id, items)
+        head = f"{user.mention} じゃあ、はじめよっか！\n"
+        if note:
+            head += note + "\n"
+        try:
+            await channel.send(head + view.current_prompt(), view=view)
+        except Exception as e:
+            logging.error(f"Failed to send review DM: {e}")
+            await interaction.followup.send("ごめんね… DMに送れなかったよ。DMを受け取れる設定にしてね！", ephemeral=True)
+
+    # Slash: review (quiz)
+    @app_commands.command(name="review", description="今日の復習（クイズ）を始めるよ！")
+    @app_commands.describe(count="出題数（1〜20）")
+    async def slash_review(self, interaction: discord.Interaction, count: Optional[int] = 5):
+        await self._start_review(interaction, count)
+
+    # Internal: quiz (random pool weighted)
+    async def _start_quiz(self, interaction: discord.Interaction, count: Optional[int] = 5, bias: Optional[float] = 1.0):
+        user_id = interaction.user.id
+        rows = await words_util.fetch_user_words(user_id)
+        if not rows:
+            await interaction.response.send_message("お兄ちゃん、まだ単語登録してないみたい…まずは /add で登録してね！", ephemeral=True)
+            return
+        pool = [(r[0], r[1], r[2]) for r in rows]
+        n = max(1, min(count or 5, 20))
+        b = bias if bias is not None else 1.0
+        try:
+            b = float(b)
+        except Exception:
+            b = 1.0
+        b = max(0.0, min(3.0, b))
+        is_dm = interaction.guild is None
+        await interaction.response.send_message("DMでクイズを始めるね！", ephemeral=not is_dm)
+        user = interaction.user
+        channel = interaction.channel if is_dm else (user.dm_channel or await user.create_dm())
+        # Weight selection by per-word difficulty stats (harder words appear more)
+        stats_map = await stats_util.fetch_stats_map(rows)
+        def weight_of(item):
+            wid = item[0]
+            attempts, corrects, ease = stats_map.get(wid, (0, 0, 2.5))
+            acc = (corrects / attempts) if attempts else 0.0
+            # Higher weight for lower accuracy and lower ease; scaled by bias
+            return 1.0 + b * (attempts * (1.0 - acc) + (3.0 - ease))
+
+        weights = [weight_of(it) for it in pool]
+        # Sample without replacement using weights
+        import random
+        selected = []
+        items = pool[:]
+        ws = weights[:]
+        for _ in range(min(n, len(items))):
+            total_w = sum(ws)
+            r = random.random() * total_w
+            upto = 0.0
+            idx = 0
+            for i, w in enumerate(ws):
+                upto += w
+                if r <= upto:
+                    idx = i
+                    break
+            selected.append(items.pop(idx))
+            ws.pop(idx)
+
+        view = ReviewSession(user_id, selected)
+        try:
+            await channel.send(f"{user.mention} クイズ行くよ！\n" + view.current_prompt(), view=view)
+        except Exception as e:
+            logging.error(f"Failed to send quiz DM: {e}")
+            await interaction.followup.send("ごめんね… DMに送れなかったよ。DMを受け取れる設定にしてね！", ephemeral=True)
+
+    @app_commands.command(name="quiz", description="登録単語からランダムでクイズを出すよ！")
+    @app_commands.describe(count="出題数（1〜20）", bias="難しい単語を優先する度合い（0〜3、既定1）")
+    async def slash_quiz(self, interaction: discord.Interaction, count: Optional[int] = 5, bias: Optional[float] = 1.0):
+        await self._start_quiz(interaction, count, bias)
+
+    # Japanese aliases for discoverability
+    @app_commands.command(name="復習", description="今日の復習（クイズ）を始めるよ！")
+    @app_commands.describe(count="出題数（1〜20）")
+    async def slash_review_ja(self, interaction: discord.Interaction, count: Optional[int] = 5):
+        await self._start_review(interaction, count)
+
+    @app_commands.command(name="クイズ", description="登録単語からランダムにクイズを出すよ！")
+    @app_commands.describe(count="出題数（1〜20）", bias="難しい単語を優先する度合い（0〜3、既定1）")
+    async def slash_quiz_ja(self, interaction: discord.Interaction, count: Optional[int] = 5, bias: Optional[float] = 1.0):
+        await self._start_quiz(interaction, count, bias)
+
+    # (Removed separate DM slash actions; buttons are provided)
 
     # Slash: add single word
     @app_commands.command(name="add", description="英単語を1件登録するよ！")
