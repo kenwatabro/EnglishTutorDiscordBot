@@ -39,6 +39,17 @@ class Database:
                 )
                 """
             )
+            await self.db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS word_stats (
+                    word_id INTEGER PRIMARY KEY,
+                    attempts INTEGER DEFAULT 0,
+                    correct INTEGER DEFAULT 0,
+                    last_seen TEXT,
+                    ease REAL DEFAULT 2.5
+                )
+                """
+            )
             await self.db.commit()
             logging.info("Database tables setup completed")
         except Exception as e:

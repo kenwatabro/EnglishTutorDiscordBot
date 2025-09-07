@@ -13,6 +13,7 @@ Discord bot that helps register English words, sends spaced-repetition reminders
 Notes:
 - If `GEMINI_API_KEY` is not set, AI features (`!kaisetu`, `!bunshou`, reply generation) are disabled gracefully.
 - The SQLite DB file is `words.db` in the repo root and is auto-created.
+ - You can tune LLM tone with `PROMPT_TONE` env var: `playful` (default) or `concise`.
 
 ### Commands
 - `/show` — Show your registered words (paginates).
@@ -21,6 +22,12 @@ Notes:
 - `/help` — Show usage (ephemeral).
 - `/kaisetu <word>` — Explain a word (Gemini).
 - `/bunshou [style]` — Generate a short text (Gemini).
+- `/review [count]` — Start a short review quiz in DMs.
+- `/quiz [count] [bias]` — Quiz from your saved words (in DMs), weighted by difficulty.
+  - `bias` controls how strongly hard words are prioritized: number 0–3 (default 1), or Japanese keywords: `弱め`=0.5, `普通`=1.0, `強め`=2.0.
+  - Examples: `/quiz 10 強め`, `/quiz 5 0.5`.
+- `/復習 [出題数]` — 日本語名の復習コマンド（/review と同じ）。
+- `/クイズ [出題数]` — 日本語名のクイズコマンド（/quiz と同じ）。
  - `/add <word> <meaning>` — Add a single word.
  - `/bulk_add <pairs>` — Add multiple pairs like `apple:りんご; take off:離陸する`.
  - `/progress` — Show your personal progress summary.
@@ -35,7 +42,11 @@ Legacy prefix commands (`!show`, `!edit`, `!delete`, `!kaisetu`, `!bunshou`) sti
 
 DM reminder UX:
 - Reminder DMs include buttons: “今すぐ5問だけ復習” to start a short review, and “あとで（1時間後）” to snooze.
-- During review, tap “答えを表示” then “覚えた/忘れた”. “覚えた” marks a word as learned and removes it from future reminders.
+- During review/quiz, answer with “覚えた/忘れた”. The bot shows the correct meaning as feedback and tracks your score. “覚えた” marks a word as learned and removes it from future reminders.
+
+Difficulty tracking:
+- The bot tracks per-word stats (attempts, correct count, ease) in a separate table `word_stats`. No destructive DB changes.
+- `/quiz` prefers words with lower accuracy or lower ease so you practice what needs attention.
 
 Registration UX:
 - Mentioning the bot with `word:meaning` now also updates the meaning if the word already exists.
