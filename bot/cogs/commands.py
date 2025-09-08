@@ -225,8 +225,8 @@ class Commands(commands.Cog):
         text = await self._bunshou_impl(interaction.user.id, style)
         await interaction.followup.send(text or "うまくいかなかったみたい…", ephemeral=False)
 
-    async def _start_review(self, interaction: discord.Interaction, count: Optional[int] = 5):
-        n = max(1, min(count or 5, 20))
+    async def _start_review(self, interaction: discord.Interaction, count: Optional[int] = None):
+        # If no count is provided, review all due words today.
         user_id = interaction.user.id
         # Build items due today; fallback to random sample if none
         rows = await words_util.fetch_user_words(user_id)
@@ -235,12 +235,21 @@ class Commands(commands.Cog):
             return
         now = datetime.now(self.bot.JST)
         due = words_util.compute_due_today(rows, now)
-        items = due[:n]
+        if count is None:
+            # All due words
+            items = due
+            n = len(items)
+        else:
+            # Respect explicit count with an upper bound
+            n = max(1, min(count, 20))
+            items = due[:n]
         note = None
         if not items:
             import random
             pool = [(r[0], r[1], r[2]) for r in rows]
-            items = random.sample(pool, min(n, len(pool)))
+            # If no due words and count unspecified, default to 5 random
+            fallback_n = (n if count is not None else 5)
+            items = random.sample(pool, min(fallback_n, len(pool)))
             note = "今日の復習対象はなかったから、ランダムに出題するね！"
         # Send in DM or current DM channel with buttons
         is_dm = interaction.guild is None
@@ -259,8 +268,8 @@ class Commands(commands.Cog):
 
     # Slash: review (quiz)
     @app_commands.command(name="review", description="今日の復習（クイズ）を始めるよ！")
-    @app_commands.describe(count="出題数（1〜20）")
-    async def slash_review(self, interaction: discord.Interaction, count: Optional[int] = 5):
+    @app_commands.describe(count="出題数（1〜20、省略時は今日の分すべて）")
+    async def slash_review(self, interaction: discord.Interaction, count: Optional[int] = None):
         await self._start_review(interaction, count)
 
     # Internal: quiz (random pool weighted)
@@ -324,8 +333,8 @@ class Commands(commands.Cog):
 
     # Japanese aliases for discoverability
     @app_commands.command(name="復習", description="今日の復習（クイズ）を始めるよ！")
-    @app_commands.describe(count="出題数（1〜20）")
-    async def slash_review_ja(self, interaction: discord.Interaction, count: Optional[int] = 5):
+    @app_commands.describe(count="出題数（1〜20、省略時は今日の分すべて）")
+    async def slash_review_ja(self, interaction: discord.Interaction, count: Optional[int] = None):
         await self._start_review(interaction, count)
 
     @app_commands.command(name="クイズ", description="登録単語からランダムにクイズを出すよ！")

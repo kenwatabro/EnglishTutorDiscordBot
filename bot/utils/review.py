@@ -138,7 +138,7 @@ class ReminderView(discord.ui.View):
         self.user_id = user_id
         self.items = items
         self.tzlabel = tzlabel
-        self.start_btn = discord.ui.Button(label="今すぐ5問だけ復習", style=discord.ButtonStyle.primary)
+        self.start_btn = discord.ui.Button(label="今すぐ全部復習", style=discord.ButtonStyle.primary)
         self.snooze_btn = discord.ui.Button(label="あとで（1時間後）", style=discord.ButtonStyle.secondary)
         self.start_btn.callback = self.on_start
         self.snooze_btn.callback = self.on_snooze
@@ -149,9 +149,8 @@ class ReminderView(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("これは発行者だけが使えるよ！", ephemeral=True)
             return
-        # Take first 5 items
-        subset = self.items[:5]
-        view = ReviewSession(self.user_id, subset)
+        # Start a session with all due items
+        view = ReviewSession(self.user_id, self.items)
         await interaction.response.send_message("じゃあ、はじめよっか！", ephemeral=True)
         # Send a new message with the first prompt
         await interaction.followup.send(view.current_prompt(), view=view)

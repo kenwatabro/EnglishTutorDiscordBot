@@ -70,18 +70,23 @@ class Reminders(commands.Cog):
             if not items:
                 continue
             user = self.bot.get_user(user_id)
-            if user:
-                channel = user.dm_channel or await user.create_dm()
-                preview = [f"・{w}" for (_, w, _) in items[:10]]
-                more = "\n…" if len(items) > 10 else ""
-                message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(preview) + more
-                view = ReminderView(user_id, items, str(self.bot.JST))
-                await channel.send(message, view=view)
-                logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
-                users_sent += 1
-                total_words += len(items)
-            else:
-                logging.warning(f"User {user_id} not found")
+            if not user:
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                except Exception as e:
+                    logging.warning(f"User {user_id} not found in cache and fetch failed: {e}")
+                    user = None
+            if not user:
+                continue
+            channel = user.dm_channel or await user.create_dm()
+            preview = [f"・{w}" for (_, w, _) in items[:10]]
+            more = "\n…" if len(items) > 10 else ""
+            message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(preview) + more
+            view = ReminderView(user_id, items, str(self.bot.JST))
+            await channel.send(message, view=view)
+            logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
+            users_sent += 1
+            total_words += len(items)
         logging.info("Daily reminder run completed")
         return users_sent, total_words
 
@@ -100,16 +105,21 @@ class Reminders(commands.Cog):
         users_sent = 0
         for user_id in inactive_users:
             user = self.bot.get_user(user_id)
-            if user:
-                channel = user.dm_channel or await user.create_dm()
-                await channel.send(
-                    f"{user.mention} お兄ちゃん、今日はまだ単語の登録してないよ！\n"
-                    "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
-                )
-                logging.info(f"Sent reminder to inactive user {user_id}")
-                users_sent += 1
-            else:
-                logging.warning(f"User {user_id} not found")
+            if not user:
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                except Exception as e:
+                    logging.warning(f"User {user_id} not found in cache and fetch failed: {e}")
+                    user = None
+            if not user:
+                continue
+            channel = user.dm_channel or await user.create_dm()
+            await channel.send(
+                f"{user.mention} お兄ちゃん、今日はまだ単語の登録してないよ！\n"
+                "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
+            )
+            logging.info(f"Sent reminder to inactive user {user_id}")
+            users_sent += 1
         logging.info("Inactivity reminder run completed")
         return users_sent
 

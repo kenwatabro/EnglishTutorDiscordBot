@@ -59,10 +59,14 @@ class Events(commands.Cog):
             m_review = _re.match(r"^/?復習(?:\s+(\d+))?$", cmd)
             if m_quiz or m_review:
                 try:
-                    n = int((m_quiz or m_review).group(1) or 5)
-                    n = max(1, min(n, 20))
+                    # For 復習: no number -> review all due today.
+                    if m_review and (m_review.group(1) is None):
+                        n = None
+                    else:
+                        n = int((m_quiz or m_review).group(1) or 5)
+                        n = max(1, min(n, 20))
                 except Exception:
-                    n = 5
+                    n = None if m_review else 5
                 try:
                     # Build pool
                     rows = await words_util.fetch_user_words(message.author.id)
@@ -73,10 +77,11 @@ class Events(commands.Cog):
                     if m_review:
                         now = datetime.now(self.bot.JST)
                         due = words_util.compute_due_today(rows, now)
-                        items = due[:n]
+                        items = due if (n is None) else due[:n]
                         if not items:
                             import random as _rand
-                            items = _rand.sample(pool, min(n, len(pool)))
+                            backup_n = (n if n is not None else 5)
+                            items = _rand.sample(pool, min(backup_n, len(pool)))
                             note = "今日の復習対象はなかったから、ランダムに出題するね！"
                         else:
                             note = None
