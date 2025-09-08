@@ -173,13 +173,23 @@ class ReminderView(discord.ui.View):
             try:
                 await asyncio.sleep(3600)
                 user = interaction.client.get_user(self.user_id)
+                if not user:
+                    try:
+                        user = await interaction.client.fetch_user(self.user_id)
+                    except Exception:
+                        user = None
                 if user:
-                    channel = user.dm_channel or await user.create_dm()
-                    msg = "お兄ちゃん、さっきの続きやろっ！"
-                    view = ReminderView(self.user_id, self.items, self.tzlabel)
-                    await channel.send(msg, view=view)
+                    try:
+                        channel = user.dm_channel or await user.create_dm()
+                        msg = "お兄ちゃん、さっきの続きやろっ！"
+                        view = ReminderView(self.user_id, self.items, self.tzlabel)
+                        await channel.send(msg, view=view)
+                    except discord.Forbidden:
+                        logging.info(f"User {self.user_id} has DMs disabled; skipping snooze DM.")
+                    except Exception as e:
+                        logging.warning(f"Snooze DM failed for {self.user_id}: {e}")
             except Exception as e:
-                logging.error(f"Snooze send failed: {e}")
+                logging.error(f"Snooze scheduling task errored: {e}")
 
         asyncio.create_task(task())
 
