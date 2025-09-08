@@ -1,11 +1,2 @@
-.env
-*.db
-__pycache__
-*.ipynb
-*.log
-*.log.*
-venv/
-*.pyc
-*.pyo
-*.pyd
-*.sqlite3
+# Local agent rules (not tracked)
+AGENTS.md
