@@ -78,15 +78,18 @@ class Reminders(commands.Cog):
                     user = None
             if not user:
                 continue
-            channel = user.dm_channel or await user.create_dm()
-            preview = [f"・{w}" for (_, w, _) in items[:10]]
-            more = "\n…" if len(items) > 10 else ""
-            message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(preview) + more
-            view = ReminderView(user_id, items, str(self.bot.JST))
-            await channel.send(message, view=view)
-            logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
-            users_sent += 1
-            total_words += len(items)
+            try:
+                channel = user.dm_channel or await user.create_dm()
+                preview = [f"・{w}" for (_, w, _) in items[:10]]
+                more = "\n…" if len(items) > 10 else ""
+                message = f"{user.mention} お兄ちゃん、今日の単語だよ！\n" + "\n".join(preview) + more
+                view = ReminderView(user_id, items, str(self.bot.JST))
+                await channel.send(message, view=view)
+                logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
+                users_sent += 1
+                total_words += len(items)
+            except Exception as e:
+                logging.warning(f"Failed to send daily reminder DM to user {user_id}: {e}")
         logging.info("Daily reminder run completed")
         return users_sent, total_words
 
@@ -98,7 +101,7 @@ class Reminders(commands.Cog):
         all_users = {row[0] for row in rows}
         today_rows = await db.fetchall(
             "SELECT DISTINCT user_id FROM words WHERE date(added_at) = date(?)",
-            (today.isoformat(),),
+            (today.strftime("%Y-%m-%d"),),
         )
         active_users = {row[0] for row in today_rows}
         inactive_users = all_users - active_users
@@ -113,13 +116,16 @@ class Reminders(commands.Cog):
                     user = None
             if not user:
                 continue
-            channel = user.dm_channel or await user.create_dm()
-            await channel.send(
-                f"{user.mention} お兄ちゃん、今日はまだ単語の登録してないよ！\n"
-                "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
-            )
-            logging.info(f"Sent reminder to inactive user {user_id}")
-            users_sent += 1
+            try:
+                channel = user.dm_channel or await user.create_dm()
+                await channel.send(
+                    f"{user.mention} お兄ちゃん、今日はまだ単語の登録してないよ！\n"
+                    "新しい単語を覚えて、もっと賢くなろうね！ (｀・ω・´)ゞ"
+                )
+                logging.info(f"Sent reminder to inactive user {user_id}")
+                users_sent += 1
+            except Exception as e:
+                logging.warning(f"Failed to send inactivity reminder DM to user {user_id}: {e}")
         logging.info("Inactivity reminder run completed")
         return users_sent
 
