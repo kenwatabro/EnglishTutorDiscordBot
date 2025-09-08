@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 from discord import app_commands
+import discord
 from bot.utils.review import ReminderView
 
 # ログファイルのディレクトリを設定
@@ -88,6 +89,11 @@ class Reminders(commands.Cog):
                 logging.info(f"Sent daily reminder to user {user_id}: {[w for (_, w, _) in items]}")
                 users_sent += 1
                 total_words += len(items)
+            except discord.Forbidden:
+                # User has DMs disabled or blocked the bot
+                logging.info(f"User {user_id} has DMs disabled; skipping daily reminder.")
+            except discord.HTTPException as e:
+                logging.warning(f"HTTP error sending daily reminder to {user_id}: {e}")
             except Exception as e:
                 logging.warning(f"Failed to send daily reminder DM to user {user_id}: {e}")
         logging.info("Daily reminder run completed")
@@ -124,6 +130,10 @@ class Reminders(commands.Cog):
                 )
                 logging.info(f"Sent reminder to inactive user {user_id}")
                 users_sent += 1
+            except discord.Forbidden:
+                logging.info(f"User {user_id} has DMs disabled; skipping inactivity reminder.")
+            except discord.HTTPException as e:
+                logging.warning(f"HTTP error sending inactivity reminder to {user_id}: {e}")
             except Exception as e:
                 logging.warning(f"Failed to send inactivity reminder DM to user {user_id}: {e}")
         logging.info("Inactivity reminder run completed")
