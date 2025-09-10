@@ -50,6 +50,13 @@ class Reminders(commands.Cog):
         logging.info(f"daily_reminder manual run at: {datetime.now(JST)}")
         db = await Database.get_instance()
         now = datetime.now(self.bot.JST)
+        # 既存の 'done' フラグを解除（新仕様：完了概念を撤廃）
+        try:
+            await db.execute("UPDATE words SET intervals_remaining = ? WHERE intervals_remaining = 'done'", (
+                ",".join(map(str, INTERVALS[:-1])),  # 例: '1,4,10,17,30'
+            ))
+        except Exception as e:
+            logging.warning(f"Failed to clear 'done' flags: {e}")
 
         all_users_words = {}
         rows = await db.fetchall("SELECT user_id, id, word, meaning, added_at, intervals_remaining FROM words")
@@ -281,5 +288,12 @@ async def setup(bot):
     reminder_cog = Reminders(bot)
     await bot.add_cog(reminder_cog)
     logging.info("Reminders Cog has been added to the bot")
+    # Register persistent reminder view so its buttons work across restarts/timeouts
+    try:
+        # Register a single persistent instance (no user-specific state)
+        bot.add_view(ReminderView(timeout=None))
+        logging.info("Persistent ReminderView registered")
+    except Exception as e:
+        logging.warning(f"Failed to register persistent ReminderView: {e}")
 
     

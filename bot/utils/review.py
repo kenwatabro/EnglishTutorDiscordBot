@@ -1,11 +1,12 @@
 import discord
 from typing import List, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import random
 
 from .database import Database
 from .stats import record_result
+from . import words as words_util
 
 
 class ReviewSession(discord.ui.View):
@@ -62,11 +63,10 @@ class ReviewSession(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("これは発行者だけのセッションだよ！", ephemeral=True)
             return
-        # Mark as learned by setting intervals_remaining='done'
+        # 正解: リマインド対象は変更しない（スケジュールはそのまま）
         try:
             _id, _, _ = self.items[self.index]
             db = await Database.get_instance()
-            await db.execute("UPDATE words SET intervals_remaining = 'done' WHERE id = ? AND user_id = ?", (_id, self.user_id))
             await record_result(_id, True, datetime.utcnow())
         except Exception as e:
             logging.error(f"Failed to mark learned: {e}")
@@ -94,9 +94,16 @@ class ReviewSession(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("これは発行者だけのセッションだよ！", ephemeral=True)
             return
-        # Do not change DB; just advance
+        # 不正解: リマインド間隔をリセット（翌日から再スタート）
         try:
             _id, _, _ = self.items[self.index]
+            db = await Database.get_instance()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            # added_at を現在に更新してスケジュールをリセット
+            await db.execute(
+                "UPDATE words SET added_at = ? WHERE id = ? AND user_id = ?",
+                (now_iso, _id, self.user_id),
+            )
             await record_result(_id, False, datetime.utcnow())
         except Exception as e:
             logging.error(f"Failed to record incorrect: {e}")
@@ -133,33 +140,61 @@ class ReviewSession(discord.ui.View):
 class ReminderView(discord.ui.View):
     """View attached to daily reminder message with Start and Snooze."""
 
-    def __init__(self, user_id: int, items: List[Tuple[int, str, str]], tzlabel: str, timeout: Optional[float] = 3600):
+    def __init__(self, user_id: Optional[int] = None, items: Optional[List[Tuple[int, str, str]]] = None, tzlabel: Optional[str] = None, timeout: Optional[float] = 3600):
+        # For messages we send: keep a finite timeout to limit memory.
+        # A separate persistent instance is registered at startup to handle late clicks/restarts.
         super().__init__(timeout=timeout)
         self.user_id = user_id
-        self.items = items
-        self.tzlabel = tzlabel
-        self.start_btn = discord.ui.Button(label="今すぐ全部復習", style=discord.ButtonStyle.primary)
-        self.snooze_btn = discord.ui.Button(label="あとで（1時間後）", style=discord.ButtonStyle.secondary)
+        self.items = items or []
+        self.tzlabel = tzlabel or "JST"
+        # Persistent buttons require fixed custom_id
+        self.start_btn = discord.ui.Button(custom_id="reminder_start", label="今すぐ全部復習", style=discord.ButtonStyle.primary)
+        self.snooze_btn = discord.ui.Button(custom_id="reminder_snooze", label="あとで（1時間後）", style=discord.ButtonStyle.secondary)
         self.start_btn.callback = self.on_start
         self.snooze_btn.callback = self.on_snooze
         self.add_item(self.start_btn)
         self.add_item(self.snooze_btn)
 
     async def on_start(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
+        # In DMs, only the user sees the message; for safety also check against self.user_id if present.
+        if self.user_id is not None and interaction.user.id != self.user_id:
             await interaction.response.send_message("これは発行者だけが使えるよ！", ephemeral=True)
             return
-        # Start a session with all due items
-        view = ReviewSession(self.user_id, self.items)
-        await interaction.response.send_message("じゃあ、はじめよっか！", ephemeral=True)
-        # Send a new message with the first prompt
-        await interaction.followup.send(view.current_prompt(), view=view)
+        # Ack and disable original buttons to prevent double starts
+        await interaction.response.defer(thinking=False)
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
+        # Build items due at click-time (fresh), fallback to random few if none
+        try:
+            user_id = interaction.user.id
+            rows = await words_util.fetch_user_words(user_id)
+            now = datetime.now(interaction.client.JST) if hasattr(interaction.client, "JST") else datetime.now()
+            due = words_util.compute_due_today(rows, now)
+            items: List[Tuple[int, str, str]]
+            if due:
+                items = due
+            else:
+                pool = [(r[0], r[1], r[2]) for r in rows]
+                import random as _rand
+                items = _rand.sample(pool, min(5, len(pool))) if pool else []
+            view = ReviewSession(user_id, items)
+            await interaction.followup.send("じゃあ、はじめよっか！\n" + view.current_prompt(), view=view)
+        except Exception as e:
+            logging.error(f"Failed to build/start review from reminder: {e}")
+            await interaction.followup.send("ごめんね…開始に失敗しちゃった… DM設定を確認してね！")
 
     async def on_snooze(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
+        if self.user_id is not None and interaction.user.id != self.user_id:
             await interaction.response.send_message("これは発行者だけが使えるよ！", ephemeral=True)
             return
-        await interaction.response.send_message("1時間後にまた声かけるね！", ephemeral=True)
+        await interaction.response.defer(thinking=False)
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
+        await interaction.followup.send("1時間後にまた声かけるね！")
         # Schedule a simple delayed reminder in DM
         async def delayed_send():
             try:
@@ -182,7 +217,7 @@ class ReminderView(discord.ui.View):
                     try:
                         channel = user.dm_channel or await user.create_dm()
                         msg = "お兄ちゃん、さっきの続きやろっ！"
-                        view = ReminderView(self.user_id, self.items, self.tzlabel)
+                        view = ReminderView(self.user_id, None, self.tzlabel)
                         await channel.send(msg, view=view)
                     except discord.Forbidden:
                         logging.info(f"User {self.user_id} has DMs disabled; skipping snooze DM.")
@@ -224,8 +259,7 @@ async def quiz_memorized(user_id: int) -> str:
         return "いま進行中のクイズはないみたい。/復習 や /クイズ で始めてね！"
     _id, word, meaning = st.items[st.index]
     try:
-        db = await Database.get_instance()
-        await db.execute("UPDATE words SET intervals_remaining = 'done' WHERE id = ? AND user_id = ?", (_id, user_id))
+        # 正解: リマインド対象は変更しない（スケジュールはそのまま）
         await record_result(_id, True, datetime.utcnow())
     except Exception:
         pass
@@ -248,6 +282,13 @@ async def quiz_forgot(user_id: int) -> str:
         return "いま進行中のクイズはないみたい。/復習 や /クイズ で始めてね！"
     _id, word, meaning = st.items[st.index]
     try:
+        # 不正解: リマインド間隔をリセット（翌日から再スタート）
+        db = await Database.get_instance()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.execute(
+            "UPDATE words SET added_at = ? WHERE id = ? AND user_id = ?",
+            (now_iso, _id, user_id),
+        )
         await record_result(_id, False, datetime.utcnow())
     except Exception:
         pass

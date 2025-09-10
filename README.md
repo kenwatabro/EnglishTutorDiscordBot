@@ -42,7 +42,7 @@ Legacy prefix commands (`!show`, `!edit`, `!delete`, `!kaisetu`, `!bunshou`) sti
 
 DM reminder UX:
 - Reminder DMs include buttons: “今すぐ全部復習” to start reviewing all due words, and “あとで（1時間後）” to snooze.
-- During review/quiz, answer with “覚えた/忘れた”. The bot shows the correct meaning as feedback and tracks your score. “覚えた” marks a word as learned and removes it from future reminders.
+- During review/quiz, answer with “覚えた/忘れた”. The bot shows the correct meaning as feedback and tracks your score. “覚えた” does not change reminder scheduling; “忘れた” resets the reminder schedule (next due starts from tomorrow).
 
 Difficulty tracking:
 - The bot tracks per-word stats (attempts, correct count, ease) in a separate table `word_stats`. No destructive DB changes.
